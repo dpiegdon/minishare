@@ -202,6 +202,9 @@ _PAGE = """<!doctype html>
   input[type=text]{padding:.25rem .4rem}
   .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
   .ops form{flex:1;margin:0;min-width:15rem}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  form.drop{outline:2px dashed #06c;outline-offset:-4px}
+  .hint{color:#aaa;font-size:12px;margin-left:.4rem}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
@@ -250,17 +253,40 @@ _PAGE = """<!doctype html>
 
 <div class="ops">
   <form method="post" action="{{ mkdir_url }}">
-    <strong>New folder here:</strong>
     <input type="text" name="name" placeholder="folder name" required>
-    <button type="submit">Create</button>
+    <button type="submit">Create folder</button>
   </form>
 
-  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data">
-    <strong>Upload here:</strong>
-    <input type="file" name="file" multiple required>
-    <button type="submit">Upload</button>
+  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" id="up">
+    <input type="file" name="file" id="upf" multiple required>
+    <button type="submit" id="upb">Upload files</button>
+    <span class="hint">or drop files here</span>
   </form>
 </div>
+<script>
+(function () {
+  var f = document.getElementById('upf'),
+      b = document.getElementById('upb'),
+      box = document.getElementById('up');
+  function sync() { b.disabled = !(f.files && f.files.length); }
+  f.addEventListener('change', sync);
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    box.addEventListener(ev, function (e) {
+      e.preventDefault();
+      box.classList.add('drop');
+    });
+  });
+  ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+    box.addEventListener(ev, function () { box.classList.remove('drop'); });
+  });
+  box.addEventListener('drop', function (e) {
+    e.preventDefault();
+    f.files = e.dataTransfer.files;   // FileList is assignable in modern browsers
+    sync();
+  });
+  sync();   // progressive enhancement: only JS disables the button
+})();
+</script>
 """
 
 
