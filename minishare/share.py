@@ -27,14 +27,70 @@ from flask import (
 )
 from werkzeug.utils import safe_join, secure_filename
 
-share_bp = Blueprint("share", __name__)
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+def _cfg() -> dict:
+    """Per-instance config of the blueprint handling this request.
+
+    Each ``make_blueprint()`` stashes its settings on the Blueprint
+    object, so several independent minishare mounts can coexist on one
+    Flask app without sharing storage / auth / title.
+    """
+    return current_app.blueprints[request.blueprint].ms_config
+
+
 def _storage_root() -> str:
-    return current_app.config["MINISHARE_DIR"]
+    return _cfg()["storage_dir"]
+
+
+def _dir_used_bytes(root: str) -> int:
+    total = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            fp = os.path.join(dirpath, fn)
+            if not os.path.islink(fp):
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    pass
+    return total
+
+
+def _storage_use() -> str:
+    """Small human string: ``n.n / m MB`` or ``n.n MB (unlimited)``."""
+    used_mb = _dir_used_bytes(_storage_root()) / (1024 * 1024)
+    limit = _cfg()["max_total_mb"]
+    if limit is None:
+        return f"{used_mb:.1f} MB (unlimited)"
+    return f"{used_mb:.1f} / {limit} MB"
+
+
+def _check_quota(incoming: int | None) -> None:
+    """Reject (413) an upload that breaks the per-upload or total cap.
+
+    ``incoming`` is the request body size if known (``Content-Length``);
+    when unknown we can still enforce an already-full store.
+    """
+    cfg = _cfg()
+    mx = cfg["max_mb"]
+    if mx is not None and incoming is not None and incoming > mx * 1024 * 1024:
+        abort(413, description=f"Upload exceeds the {mx} MB per-upload limit")
+    tot = cfg["max_total_mb"]
+    if tot is not None:
+        limit_b = tot * 1024 * 1024
+        used = _dir_used_bytes(_storage_root())
+        if used >= limit_b or (
+            incoming is not None and used + incoming > limit_b
+        ):
+            abort(
+                413,
+                description=(
+                    f"Storage is full ({tot} MB limit) - delete files to "
+                    f"free space. Downloads and deletes still work."
+                ),
+            )
 
 
 def _doc_base() -> str:
@@ -48,7 +104,7 @@ def _doc_base() -> str:
     ``|safe`` (so quotes and text are not HTML-mangled), so a crafted
     Host header must not be able to inject markup through this value.
     """
-    raw = url_for("share.help_text", _external=True)[: -len("/help")].rstrip(
+    raw = url_for(".help_text", _external=True)[: -len("/help")].rstrip(
         "/"
     )
     return re.sub(r"[^A-Za-z0-9:/._~%@\[\]-]", "", raw)
@@ -117,7 +173,7 @@ def _respond(payload: dict, redirect_subpath: str, status: int = 200):
     """
     if request.method == "DELETE" or _client_wants_json():
         return jsonify(payload), status
-    return redirect(url_for("share.browse", subpath=redirect_subpath))
+    return redirect(url_for(".browse", subpath=redirect_subpath))
 
 
 def _listing(full_dir: str, subpath: str) -> list[dict]:
@@ -136,7 +192,7 @@ def _listing(full_dir: str, subpath: str) -> list[dict]:
                 "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(
                     timespec="seconds"
                 ),
-                "download": None if is_dir else url_for("share.get", subpath=rel),
+                "download": None if is_dir else url_for(".get", subpath=rel),
             }
         )
     # Directories first, then files, each alphabetically.
@@ -202,6 +258,8 @@ Notes
   * PUT creates missing parent directories and overwrites existing files.
   * mkdir is idempotent; deleting a directory removes it RECURSIVELY.
   * No auth configured == anyone who can reach the server can also delete.
+  * Uploads may return 413 if a per-upload or total-storage limit is set;
+    downloads and deletes always work. The HTML pages show storage use.
 """
 
 
@@ -233,6 +291,7 @@ _PAGE = """<!doctype html>
   summary{color:#aaa;font-size:12px;cursor:pointer}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
   .crumb{color:#666}
+  .su{color:#888;font-size:12px;margin:-.4rem 0 .8rem}
 </style>
 <details>
   <summary>CLI / API usage (for agents &amp; scripts)</summary>
@@ -245,6 +304,7 @@ _PAGE = """<!doctype html>
   {%- endfor -%}
   </span>
 </h1>
+<div class="su">storage: {{ storage_use }}</div>
 
 <form method="post" action="{{ delete_url }}" id="delform"
       onsubmit="return confirm('Delete ' + this.querySelectorAll('input[name=sel]:checked').length + ' selected item(s)? Folders are deleted recursively. This cannot be undone.')">
@@ -257,7 +317,7 @@ _PAGE = """<!doctype html>
   {% for e in entries %}
   <tr>
     {% if e.type == 'dir' %}
-      <td class="dir">📁 <a href="{{ url_for('share.browse', subpath=e.path) }}">{{ e.name }}/</a></td>
+      <td class="dir">📁 <a href="{{ url_for('.browse', subpath=e.path) }}">{{ e.name }}/</a></td>
       <td class="r">—</td>
     {% else %}
       <td>📄 <a href="{{ e.download }}">{{ e.name }}</a></td>
@@ -328,13 +388,13 @@ _PAGE = """<!doctype html>
 # --------------------------------------------------------------------------- #
 # Authentication
 # --------------------------------------------------------------------------- #
-@share_bp.before_request
 def _enforce_auth():
     """If a {username: password} dict is configured, require HTTP Basic auth.
 
-    No dict (or empty) == fully open access, exactly as before.
+    No dict (or empty) == fully open access. Per-instance: each mounted
+    blueprint enforces its own ``auth`` dict.
     """
-    users = current_app.config.get("MINISHARE_AUTH")
+    users = _cfg()["auth"]
     if not users:
         return None  # open access
 
@@ -361,9 +421,6 @@ def _enforce_auth():
 # --------------------------------------------------------------------------- #
 # Routes
 # --------------------------------------------------------------------------- #
-@share_bp.route("/")
-@share_bp.route("/browse/")
-@share_bp.route("/browse/<path:subpath>")
 def browse(subpath: str = ""):
     """Directory listing as HTML (default) or JSON (``?format=json``)."""
     subpath = subpath.strip("/")
@@ -373,7 +430,7 @@ def browse(subpath: str = ""):
         abort(404, description=f"No such path: {subpath}")
     if os.path.isfile(full):
         # Browsing a file just means "download it".
-        return redirect(url_for("share.get", subpath=subpath))
+        return redirect(url_for(".get", subpath=subpath))
 
     entries = _listing(full, subpath)
 
@@ -391,28 +448,28 @@ def browse(subpath: str = ""):
     crumbs, acc = [], ""
     for part in [p for p in subpath.split("/") if p]:
         acc = f"{acc}/{part}".lstrip("/")
-        crumbs.append((part, url_for("share.browse", subpath=acc)))
+        crumbs.append((part, url_for(".browse", subpath=acc)))
 
     parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
-    base = _doc_base()
-    auth_on = bool(current_app.config.get("MINISHARE_AUTH"))
+    cfg = _cfg()
+    auth_on = bool(cfg["auth"])
     return render_template_string(
         _PAGE,
         subpath=subpath,
-        title=current_app.config.get("MINISHARE_TITLE") or "minishare",
+        title=cfg["title"],
         entries=entries,
         crumbs=crumbs,
-        root_url=url_for("share.browse"),
-        parent_url=url_for("share.browse", subpath=parent) if subpath else "",
-        upload_url=url_for("share.upload", subpath=subpath),
-        mkdir_url=url_for("share.mkdir", subpath=subpath),
-        delete_url=url_for("share.delete"),
+        storage_use=_storage_use(),
+        root_url=url_for(".browse"),
+        parent_url=url_for(".browse", subpath=parent) if subpath else "",
+        upload_url=url_for(".upload", subpath=subpath),
+        mkdir_url=url_for(".mkdir", subpath=subpath),
+        delete_url=url_for(".delete"),
         human=_human_size,
-        doc=_api_doc(base, auth_on),
+        doc=_api_doc(_doc_base(), auth_on),
     )
 
 
-@share_bp.route("/get/<path:subpath>")
 def get(subpath: str):
     """Download a file. ``?inline=1`` serves it for in-browser viewing."""
     full = _resolve(subpath.strip("/"))
@@ -422,11 +479,9 @@ def get(subpath: str):
     return send_file(full, as_attachment=as_attachment)
 
 
-@share_bp.route("/upload", methods=["POST"])
-@share_bp.route("/upload/", methods=["POST"])
-@share_bp.route("/upload/<path:subpath>", methods=["POST"])
 def upload(subpath: str = ""):
     """Multipart upload of one or more files into directory ``subpath``."""
+    _check_quota(request.content_length)
     subpath = subpath.strip("/")
     dest_dir = _resolve(subpath)
     os.makedirs(dest_dir, exist_ok=True)
@@ -450,9 +505,9 @@ def upload(subpath: str = ""):
     return _respond({"saved": saved}, subpath, 201)
 
 
-@share_bp.route("/put/<path:subpath>", methods=["PUT"])
 def put(subpath: str):
     """Raw-body upload to an exact path; creates parent dirs, overwrites."""
+    _check_quota(request.content_length)
     full = _resolve(subpath.strip("/"))
     if os.path.isdir(full):
         abort(400, description="Target is a directory; include a filename")
@@ -462,9 +517,6 @@ def put(subpath: str):
     return jsonify({"saved": _rel(full), "size": os.path.getsize(full)}), 201
 
 
-@share_bp.route("/mkdir", methods=["POST"])
-@share_bp.route("/mkdir/", methods=["POST"])
-@share_bp.route("/mkdir/<path:subpath>", methods=["POST"])
 def mkdir(subpath: str = ""):
     """Create a directory, ``mkdir -p`` style (idempotent).
 
@@ -492,9 +544,6 @@ def mkdir(subpath: str = ""):
     return _respond({"created": _rel(full)}, parent, 201)
 
 
-@share_bp.route("/delete", methods=["POST", "DELETE"])
-@share_bp.route("/delete/", methods=["POST", "DELETE"])
-@share_bp.route("/delete/<path:subpath>", methods=["POST", "DELETE"])
 def delete(subpath: str = ""):
     """Delete file(s)/directory(ies); directories go **recursively**.
 
@@ -543,19 +592,14 @@ def delete(subpath: str = ""):
     return _respond({"deleted": deleted[0] if single else deleted}, here)
 
 
-@share_bp.route("/help")
 def help_text():
     """Plain-text API docs — handy for `curl host/help`."""
     return current_app.response_class(
-        _api_doc(
-            _doc_base(), bool(current_app.config.get("MINISHARE_AUTH"))
-        ),
+        _api_doc(_doc_base(), bool(_cfg()["auth"])),
         mimetype="text/plain",
     )
 
 
-@share_bp.errorhandler(400)
-@share_bp.errorhandler(404)
 def _errors(err):
     msg = getattr(err, "description", str(err))
     if _wants_json():
@@ -565,3 +609,69 @@ def _errors(err):
         status=err.code,
         mimetype="text/plain",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Blueprint factory
+# --------------------------------------------------------------------------- #
+def make_blueprint(
+    *,
+    storage_dir: str,
+    name: str = "minishare",
+    auth: dict[str, str] | None = None,
+    title: str = "minishare",
+    max_mb: int | None = None,
+    max_total_mb: int | None = None,
+) -> Blueprint:
+    """Build a ready-to-register minishare blueprint.
+
+    The integrator registers it themselves and may mount several
+    independent instances on one app (use a unique ``name`` per
+    instance)::
+
+        app.register_blueprint(
+            make_blueprint(name="files", storage_dir="/srv/a"),
+            url_prefix="/files",
+        )
+
+    All configuration is by parameter (no app.config, no env): each
+    blueprint carries its own settings, so instances never collide.
+
+    :param storage_dir: directory to share; created if missing.
+    :param name: blueprint name (must be unique per Flask app).
+    :param auth: ``{user: password}``; non-empty == HTTP Basic required.
+    :param title: brand shown in the header / page title.
+    :param max_mb: reject a single upload larger than this (413).
+    :param max_total_mb: reject uploads once the storage directory
+        reaches this many MB; ``None`` == unlimited. Downloads and
+        deletes always work.
+    """
+    storage_dir = os.path.abspath(storage_dir)
+    os.makedirs(storage_dir, exist_ok=True)
+
+    bp = Blueprint(name, __name__)
+    bp.ms_config = {
+        "storage_dir": storage_dir,
+        "auth": auth or None,
+        "title": title or "minishare",
+        "max_mb": max_mb,
+        "max_total_mb": max_total_mb,
+    }
+
+    bp.before_request(_enforce_auth)
+    for code in (400, 404, 413):
+        bp.register_error_handler(code, _errors)
+
+    bp.add_url_rule("/", "browse", browse)
+    bp.add_url_rule("/browse/", "browse", browse)
+    bp.add_url_rule("/browse/<path:subpath>", "browse", browse)
+    bp.add_url_rule("/get/<path:subpath>", "get", get)
+    for rule in ("/upload", "/upload/", "/upload/<path:subpath>"):
+        bp.add_url_rule(rule, "upload", upload, methods=["POST"])
+    bp.add_url_rule("/put/<path:subpath>", "put", put, methods=["PUT"])
+    for rule in ("/mkdir", "/mkdir/", "/mkdir/<path:subpath>"):
+        bp.add_url_rule(rule, "mkdir", mkdir, methods=["POST"])
+    for rule in ("/delete", "/delete/", "/delete/<path:subpath>"):
+        bp.add_url_rule(rule, "delete", delete, methods=["POST", "DELETE"])
+    bp.add_url_rule("/help", "help_text", help_text)
+    return bp

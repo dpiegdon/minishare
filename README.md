@@ -12,7 +12,9 @@ usable by **both humans and agents**:
   `curl /` sees it first. The text is pure ASCII and rendered unescaped
   (no `&lt;` / `&#39;` noise) — placeholders read `$path` / `$dir`;
 - any listing can be requested as JSON (`?format=json`), and mutating
-  endpoints reply with JSON to agents but redirect browsers back to the UI.
+  endpoints reply with JSON to agents but redirect browsers back to the UI;
+- optional per-upload and total-storage size caps; every page shows a
+  small `storage: n.n / m MB` (or `n.n MB (unlimited)`) indicator.
 
 ## Run standalone
 
@@ -23,20 +25,24 @@ python -m minishare -d /srv/files -p 9000
 python -m minishare -a alice:s3cret -a bob:hunter2   # require HTTP Basic auth
 python -m minishare -x /files                        # mount under a prefix
 python -m minishare -t "Acme Files"                  # custom brand name
+python -m minishare --max-mb 50 --max-total-mb 2000  # size caps
 ```
 
 `python run.py …` still works as a dev shim. The shared directory is created
-if missing. Override via `-d/--dir` or the `MINISHARE_DIR` env var. Cap
-upload size with `MINISHARE_MAX_MB`. The header brand / page title shown to
-users defaults to `minishare`; override with `-t/--title`, the `title=`
-factory argument, or the `MINISHARE_TITLE` env var. Clicking the brand goes
-back to the share root.
+if missing. Override via `-d/--dir` or the `MINISHARE_DIR` env var. The
+header brand / page title defaults to `minishare`; override with
+`-t/--title` or `MINISHARE_TITLE`. Clicking the brand goes back to the
+share root. Size caps: `--max-mb` (single upload) and `--max-total-mb`
+(whole store; default unlimited), or the `MINISHARE_MAX_MB` /
+`MINISHARE_MAX_TOTAL_MB` env vars — once full, uploads get a `413` but
+downloads and deletes still work.
 
 ## Use as a git submodule
 
-Add the repo to a parent project and mount the blueprint onto **its** Flask
-app — config is namespaced under `MINISHARE_*` so it never clobbers the host
-app's settings:
+Add the repo to a parent project, build a blueprint with `make_blueprint`
+and register it on **your** app yourself. All configuration is by
+parameter — nothing is written to `app.config`, so the host app is
+untouched and you can mount **several independent instances**:
 
 ```bash
 git submodule add <repo-url> third_party/minishare
@@ -46,25 +52,32 @@ pip install -e third_party/minishare      # or: add the dir to sys.path
 
 ```python
 from flask import Flask
-from minishare import init_app          # or: from minishare import share_bp
+from minishare import make_blueprint
 
 app = Flask(__name__)
-init_app(app, storage_dir="shared", url_prefix="/files",
-         auth={"alice": "s3cret"}, title="Acme Files")   # all args optional
+app.register_blueprint(
+    make_blueprint(name="files", storage_dir="/srv/files",
+                   auth={"alice": "s3cret"}, title="Acme Files",
+                   max_total_mb=2000),
+    url_prefix="/files",
+)
+app.register_blueprint(                       # a second, fully independent mount
+    make_blueprint(name="public", storage_dir="/srv/public"),
+    url_prefix="/public",
+)
 ```
 
-`init_app` registers the self-contained `share` blueprint (no extra
-templates/static needed). Mounting under `url_prefix` keeps it clear of your
-own routes, and all in-page docs / `url_for`s respect that prefix. For full
-manual control, register `share_bp` yourself after setting the
-`MINISHARE_DIR` config key (and optionally `MINISHARE_AUTH` /
-`MINISHARE_TITLE`).
+The blueprint is self-contained (no extra templates/static). Give each
+instance a unique `name`; every in-page link / `url_for` is
+blueprint-relative, so any name and `url_prefix` just work. `make_blueprint`
+parameters: `storage_dir` (required), `name`, `auth`, `title`, `max_mb`,
+`max_total_mb`.
 
 ## Authentication (optional)
 
-Pass a `{username: password}` dict to `init_app`/`create_app`. If it is
-non-empty, **every** request must pass HTTP Basic auth with one of those
-pairs; otherwise access is fully open (the previous behaviour).
+Pass a `{username: password}` dict to `make_blueprint`/`create_app`. If it
+is non-empty, **every** request must pass HTTP Basic auth with one of those
+pairs; otherwise access is fully open.
 
 ```python
 from minishare import create_app
@@ -135,8 +148,8 @@ pytest                    # 34 tests: routes, auth, traversal/symlink,
 ## Layout
 
 ```
-minishare/__init__.py   # init_app() + create_app() — public API
-minishare/share.py      # the self-contained "share" blueprint (all routes)
+minishare/__init__.py   # create_app() + make_blueprint() — public API
+minishare/share.py      # make_blueprint() + all routes (self-contained)
 minishare/cli.py        # argparse runner (python -m minishare)
 minishare/__main__.py   # enables `python -m minishare`
 run.py                  # dev shim -> minishare.cli:main

@@ -8,7 +8,7 @@ changing this repo. Read this before editing; keep it true after editing.
 `minishare` — a deliberately small Flask **blueprint** file-sharing
 server: browse / download / upload / mkdir / delete. Two ways to run it:
 standalone (`python -m minishare`) or embedded as a git submodule
-(`from minishare import init_app`). See `README.md` for usage.
+(`app.register_blueprint(make_blueprint(...))`). See `README.md`.
 
 ## The one rule everything else serves: dual audience
 
@@ -43,16 +43,24 @@ the same time**. Concretely:
   `_resolve()` (`werkzeug.safe_join` + realpath containment against
   symlink escape). Don't bypass it. Any path-handling change needs a
   traversal/symlink test.
-- **Submodule-safe.** All config lives under `MINISHARE_*` keys so it
-  never clobbers a host app. Don't set Flask globals (e.g.
-  `MAX_CONTENT_LENGTH`) unless explicitly requested.
-- **Configuration is by blueprint parameter.** In the standard
-  blueprint case, *all* configuration is passed explicitly to
-  `init_app()` / `create_app()` (`storage_dir`, `auth`, `url_prefix`,
-  `title`, `max_mb`). That is the canonical, supported surface. The
-  `MINISHARE_*` env vars and CLI flags are conveniences for the
-  standalone runner only and must never be *required* to embed the
-  blueprint — a host app configures it purely through parameters.
+- **Blueprint factory; integrator registers it.** `make_blueprint(...)`
+  returns a fresh `Blueprint` with its config stashed on the object
+  (`bp.ms_config`, read via `_cfg()`); the integrator calls
+  `app.register_blueprint(...)` themselves. No `init_app`, no module
+  singleton. Multiple independent instances on one app are supported and
+  tested — give each a unique `name`. Every internal/template `url_for`
+  is **blueprint-relative** (`url_for(".browse")`, never
+  `"share.browse"`) so any name/prefix works; keep it that way.
+- **Submodule-safe / config by parameter.** Nothing is written to
+  `app.config`; all settings (`storage_dir`, `name`, `auth`, `title`,
+  `max_mb`, `max_total_mb`) are `make_blueprint()` parameters. Never set
+  Flask globals (e.g. `MAX_CONTENT_LENGTH`). The `MINISHARE_*` env vars
+  and CLI flags are conveniences for `create_app()` / the standalone
+  runner only, never required to embed.
+- **Size limits in handlers.** `max_mb` (single upload) and
+  `max_total_mb` (whole store; `None` == unlimited) are enforced in
+  `upload`/`put` via `_check_quota` → 413; downloads, deletes and mkdir
+  always work. Pages show a small `storage:` indicator.
 - **Progressive enhancement.** JS only *enhances* (disable buttons until
   valid, drag-and-drop). The app must remain usable with JS off; never
   hard-disable a control in markup.

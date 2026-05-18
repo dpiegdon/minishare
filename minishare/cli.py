@@ -33,6 +33,14 @@ def main(argv: list[str] | None = None) -> None:
         help="require HTTP Basic auth; repeat for multiple users "
         "(omit == open access)",
     )
+    p.add_argument(
+        "--max-mb", type=int, help="reject a single upload larger than N MB"
+    )
+    p.add_argument(
+        "--max-total-mb",
+        type=int,
+        help="reject uploads once the store reaches N MB (default: unlimited)",
+    )
     p.add_argument("--debug", action="store_true", help="enable Flask debug")
     args = p.parse_args(argv)
 
@@ -48,11 +56,16 @@ def main(argv: list[str] | None = None) -> None:
         auth=auth,
         url_prefix=args.prefix,
         title=args.title,
+        max_mb=args.max_mb,
+        max_total_mb=args.max_total_mb,
     )
+    cfg = app.blueprints["minishare"].ms_config
     where = (args.prefix or "").rstrip("/") + "/"
-    print(f"minishare serving {app.config['MINISHARE_DIR']} on "
+    print(f"minishare serving {cfg['storage_dir']} on "
           f"http://{args.host}:{args.port}{where}  (GET {where}help for the API)")
     print("  auth: " + (", ".join(sorted(auth)) if auth else "OPEN (no auth)"))
+    cap = cfg["max_total_mb"]
+    print(f"  storage cap: {cap} MB" if cap else "  storage cap: unlimited")
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 
