@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minishare"
+version = "0.1.0"
+description = "Minimal Flask blueprint file-sharing server (browse/download/upload), usable as a git submodule"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["Flask>=3.0"]
+
+[project.scripts]
+minishare = "minishare.cli:main"
+
+[tool.setuptools]
+packages = ["minishare"]
