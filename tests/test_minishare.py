@@ -426,3 +426,49 @@ def test_storage_indicator_rendered(tmp_path):
 
     unlimited = _app(tmp_path / "u")
     assert "MB (unlimited)" in unlimited.get("/").get_data(as_text=True)
+
+
+# --------------------------------------------------------------------------- #
+# Security hardening (audit follow-up)
+# --------------------------------------------------------------------------- #
+def test_inline_only_for_safe_types(client, root):
+    (root / "evil.html").write_text("<script>alert(1)</script>")
+    (root / "d.svg").write_text("<svg onload=alert(1)>")
+    (root / "n.txt").write_text("hi")
+    # scriptable types are forced to attachment even with ?inline=1
+    for f in ("evil.html", "d.svg"):
+        r = client.get(f"/get/{f}?inline=1")
+        assert r.headers["Content-Disposition"].startswith("attachment")
+    # safe types may still be viewed inline
+    assert client.get("/get/n.txt?inline=1").headers[
+        "Content-Disposition"
+    ].startswith("inline")
+
+
+def test_download_has_nosniff_and_sandbox(client, root):
+    (root / "a.bin").write_text("x")
+    r = client.get("/get/a.bin")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["Content-Security-Policy"] == "sandbox"
+
+
+def test_security_headers_on_pages(client):
+    h = client.get("/").headers
+    assert h["X-Frame-Options"] == "DENY"
+    assert h["X-Content-Type-Options"] == "nosniff"
+    assert h["Referrer-Policy"] == "no-referrer"
+
+
+def test_csrf_same_origin_guard(client, root):
+    (root / "v.txt").write_text("s")
+    # cross-origin browser POST is refused, file untouched
+    r = client.post("/delete", data={"sel": "v.txt"},
+                     headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403 and (root / "v.txt").exists()
+    # same-origin browser POST works
+    r = client.post("/delete", data={"sel": "v.txt"},
+                     headers={"Origin": "http://localhost"})
+    assert r.status_code == 200 and not (root / "v.txt").exists()
+    # agents/curl (no Origin/Referer) are unaffected
+    (root / "w.txt").write_text("s")
+    assert client.delete("/delete/w.txt").status_code == 200

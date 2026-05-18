@@ -42,7 +42,14 @@ the same time**. Concretely:
 - **Security is not optional.** All filesystem access goes through
   `_resolve()` (`werkzeug.safe_join` + realpath containment against
   symlink escape). Don't bypass it. Any path-handling change needs a
-  traversal/symlink test.
+  traversal/symlink test. Other invariants to preserve (each has a
+  test): `/get` never serves HTML/SVG `inline` (`_inline_safe`
+  allowlist) and carries `Content-Security-Policy: sandbox` + `nosniff`;
+  every response gets `X-Frame-Options: DENY` / `nosniff` /
+  `Referrer-Policy` via `_security_headers`; mutating requests pass
+  `_csrf_guard` (same-origin `Origin`/`Referer`, but curl/agents with
+  neither are allowed — keep that, it's the dual-audience contract);
+  the 401 stays generic (no software name in body or realm).
 - **Blueprint factory; integrator registers it.** `make_blueprint(...)`
   returns a fresh `Blueprint` with its config stashed on the object
   (`bp.ms_config`, read via `_cfg()`); the integrator calls

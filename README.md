@@ -159,8 +159,30 @@ pyproject.toml          # installable: pip install -e ".[dev]"
 AGENTS.md               # project knowledge + dev criteria (read first)
 ```
 
-> Development server only — not hardened for untrusted public exposure.
-> There is no per-user permission model: anyone who can reach the server
-> (everyone, if no `auth` dict is configured) can also **delete** files
-> and directories. Configure `auth` and/or put it behind a reverse proxy
-> / network controls for anything beyond a trusted environment.
+## Security
+
+Built-in protections: path traversal is blocked (`safe_join` + realpath
+containment, incl. symlink escape); passwords use constant-time compare;
+the 401 is generic (no software fingerprint); responses carry
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`; downloads get `Content-Security-Policy:
+sandbox` and HTML/SVG can never be served `inline` (forced to
+attachment) so a stored file can't script in this origin; and
+state-changing requests (`POST/PUT/DELETE`) are refused cross-origin
+(`Origin`/`Referer` must match) — curl/agents send neither and are
+unaffected.
+
+Known limitations — handle at the deployment boundary:
+
+- **Dev server.** Run behind a real WSGI server + reverse proxy; use TLS
+  whenever `auth` is set (HTTP Basic is cleartext). **Never** `--debug`
+  on an exposed port (Werkzeug debugger ≈ RCE).
+- **No per-user authorization.** Anyone who can reach it (everyone, if no
+  `auth` dict) can upload, overwrite and **delete**. Set `auth` and/or
+  network-restrict it.
+- **No brute-force throttling** on Basic auth — rate-limit at the proxy.
+- **Size/total caps are advisory** — enforced from `Content-Length`, so a
+  hostile client can exceed them; set a hard body limit at the proxy for
+  guarantees.
+- Put it behind a fixed `Host`/`SERVER_NAME` so the `Host` header can't
+  steer the URLs shown in `/help`.

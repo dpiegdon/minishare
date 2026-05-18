@@ -9,10 +9,12 @@ same docs as plain text, and any listing endpoint can return JSON via
 from __future__ import annotations
 
 import hmac
+import mimetypes
 import os
 import re
 import shutil
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import (
     Blueprint,
@@ -398,6 +400,50 @@ _PAGE = """<!doctype html>
 
 
 # --------------------------------------------------------------------------- #
+# Security: headers, CSRF, safe inline types
+# --------------------------------------------------------------------------- #
+def _security_headers(resp):
+    """Defence-in-depth headers on every response."""
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
+
+
+def _csrf_guard():
+    """Block cross-origin state-changing browser requests.
+
+    Browsers send ``Origin`` (and usually ``Referer``) on mutating
+    requests; if present it must match this host. curl / agents send
+    neither, so they are unaffected — only a browser tricked by another
+    site is rejected (relevant when ``auth`` is enabled).
+    """
+    if request.method not in ("POST", "PUT", "DELETE"):
+        return None
+    for header in ("Origin", "Referer"):
+        val = request.headers.get(header)
+        if val:
+            if urlparse(val).netloc != request.host:
+                abort(403, description="Cross-origin request refused")
+            return None
+    return None
+
+
+def _inline_safe(mime: str | None) -> bool:
+    """May this content type be served ``inline`` without XSS risk?
+
+    Anything that can script in the page origin (HTML, SVG, ...) is
+    excluded and will be sent as an attachment instead.
+    """
+    if not mime:
+        return False
+    if mime in ("application/pdf", "text/plain"):
+        return True
+    top = mime.split("/", 1)[0]
+    return top in ("image", "audio", "video") and mime != "image/svg+xml"
+
+
+# --------------------------------------------------------------------------- #
 # Authentication
 # --------------------------------------------------------------------------- #
 def _enforce_auth():
@@ -481,12 +527,20 @@ def browse(subpath: str = ""):
 
 
 def get(subpath: str):
-    """Download a file. ``?inline=1`` serves it for in-browser viewing."""
+    """Download a file. ``?inline=1`` views it in the browser, but only
+    for safe content types — HTML/SVG/etc. are always sent as an
+    attachment so a stored file cannot script in this origin."""
     full = _resolve(subpath.strip("/"))
     if not os.path.isfile(full):
         abort(404, description=f"Not a file: {subpath}")
-    as_attachment = request.args.get("inline") not in ("1", "true", "yes")
-    return send_file(full, as_attachment=as_attachment)
+    want_inline = request.args.get("inline") in ("1", "true", "yes")
+    mime, _ = mimetypes.guess_type(full)
+    as_attachment = not (want_inline and _inline_safe(mime))
+    resp = send_file(full, as_attachment=as_attachment)
+    # Untrusted user content: kill scripting even if a client renders it.
+    resp.headers["Content-Security-Policy"] = "sandbox"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 def upload(subpath: str = ""):
@@ -669,7 +723,9 @@ def make_blueprint(
     }
 
     bp.before_request(_enforce_auth)
-    for code in (400, 404, 413):
+    bp.before_request(_csrf_guard)
+    bp.after_request(_security_headers)
+    for code in (400, 403, 404, 413):
         bp.register_error_handler(code, _errors)
 
     bp.add_url_rule("/", "browse", browse)
