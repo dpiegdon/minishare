@@ -284,7 +284,7 @@ _PAGE = """<!doctype html>
 
   <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" id="up">
     <input type="file" name="file" id="upf" multiple required>
-    <span class="hint">&larr; or drop files onto the picker</span>
+    <span class="hint">&larr; or drop files here</span>
     <button type="submit" id="upb">Upload files</button>
   </form>
 </div>

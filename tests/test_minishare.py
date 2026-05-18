@@ -316,7 +316,7 @@ def test_host_header_cannot_inject(client):
 def test_upload_hint_between_picker_and_button(client):
     html = client.get("/").get_data(as_text=True)
     i = html.index('id="upf"')
-    h = html.index("or drop files onto the picker")
+    h = html.index("or drop files here")
     b = html.index('id="upb"')
     assert i < h < b  # hint sits with the picker, before the Upload button
 
