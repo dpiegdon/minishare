@@ -86,10 +86,11 @@ how to authenticate, and `GET /help` documents it when auth is enabled.
 ## API
 
 From a **browser** every listing page lets a human browse into/out of
-directories, download files, upload files, create a folder, and delete
-any entry (🗑 button, with a confirm prompt that names the item). The
-same actions are
-available as documented endpoints for **agents/scripts**:
+directories, download files, upload files (multi-select or drag & drop),
+create a folder, and delete entries: tick the checkboxes in the last
+column and hit **Delete** (greyed out until something is selected, with
+a confirm prompt). The same actions are available as documented
+endpoints for **agents/scripts**:
 
 | Action            | Request                                       |
 |-------------------|-----------------------------------------------|
@@ -101,6 +102,7 @@ available as documented endpoints for **agents/scripts**:
 | Upload (raw)      | `PUT /put/<path>` body = file bytes           |
 | Create directory  | `POST /mkdir/<path>` (`mkdir -p`)             |
 | Delete file/dir   | `DELETE /delete/<path>` (dirs: **recursive**) |
+| Delete (bulk)     | `POST /delete` repeated `sel=<path>` fields    |
 | Docs (plain text) | `GET /help`                                   |
 
 ```bash
@@ -116,8 +118,11 @@ curl -X DELETE 'http://host:8000/delete/docs/old'         # delete (recursive)
 rejected (`werkzeug.safe_join`). `PUT` creates parent directories and
 overwrites; multipart filenames and new folder names are sanitized.
 Deleting a directory removes it **recursively**; the share root itself
-cannot be deleted. The browser's delete button POSTs to the same
-`/delete/<path>` URL (browsers can't send `DELETE` from a form).
+cannot be deleted. Agents use `DELETE /delete/<path>` for a single item
+(reply `{"deleted": "<path>"}`); the browser checkbox UI POSTs the
+checked rows as repeated `sel=<path>` fields to `/delete`
+(reply `{"deleted": [...]}`), since browsers can't send `DELETE` from a
+form.
 
 ## Layout
 

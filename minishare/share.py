@@ -152,7 +152,7 @@ Upload (multipart): POST   {base}/upload[/$dir]    field name: file
 Upload (raw body):  PUT    {base}/put/$path        body = file contents
 Make a directory:   POST   {base}/mkdir/$path      (mkdir -p)
 Delete file or dir: DELETE {base}/delete/$path     (dirs: RECURSIVE)
-                    (browsers POST to that same /delete/$path URL)
+                    (bulk: POST {base}/delete with repeated sel=$path)
 This help (text):   GET    {base}/help
 
 curl examples
@@ -205,6 +205,7 @@ _PAGE = """<!doctype html>
   button:disabled{opacity:.45;cursor:not-allowed}
   form.drop{outline:2px dashed #06c;outline-offset:-4px}
   .hint{color:#aaa;font-size:12px;margin-left:.4rem}
+  td.sel,th.sel{text-align:center;width:5rem}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
@@ -222,8 +223,11 @@ _PAGE = """<!doctype html>
   </span>
 </h1>
 
+<form method="post" action="{{ delete_url }}" id="delform"
+      onsubmit="return confirm('Delete ' + this.querySelectorAll('input[name=sel]:checked').length + ' selected item(s)? Folders are deleted recursively. This cannot be undone.')">
 <table>
-  <tr><th>Name</th><th class="r">Size</th><th>Modified</th><th></th></tr>
+  <tr><th>Name</th><th class="r">Size</th><th>Modified</th>
+      <th class="sel"><button type="submit" id="delbtn" title="delete the selected items">Delete</button></th></tr>
   {% if subpath %}
   <tr><td class="dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td><td></td></tr>
   {% endif %}
@@ -237,12 +241,9 @@ _PAGE = """<!doctype html>
       <td class="r">{{ human(e.size) }}</td>
     {% endif %}
     <td>{{ e.modified }}</td>
-    <td>
-      <form method="post" action="{{ url_for('share.delete', subpath=e.path) }}"
-            class="inline" data-n="{{ e.name }}"
-            onsubmit="return confirm({% if e.type == 'dir' %}'Delete directory “' + this.dataset.n + '” and ALL its contents? This cannot be undone.'{% else %}'Delete file “' + this.dataset.n + '”?'{% endif %})">
-        <button type="submit" title="delete">🗑</button>
-      </form>
+    <td class="sel">
+      <input type="checkbox" name="sel" value="{{ e.path }}"
+             aria-label="select {{ e.name }}">
     </td>
   </tr>
   {% endfor %}
@@ -250,6 +251,7 @@ _PAGE = """<!doctype html>
   <tr><td colspan="4"><em>empty directory</em></td></tr>
   {% endif %}
 </table>
+</form>
 
 <div class="ops">
   <form method="post" action="{{ mkdir_url }}">
@@ -284,6 +286,16 @@ _PAGE = """<!doctype html>
     f.files = e.dataTransfer.files;   // FileList is assignable in modern browsers
     sync();
   });
+  sync();   // progressive enhancement: only JS disables the button
+})();
+(function () {
+  var btn = document.getElementById('delbtn'),
+      form = document.getElementById('delform');
+  if (!btn || !form) return;
+  function sync() {
+    btn.disabled = !form.querySelector('input[name=sel]:checked');
+  }
+  form.addEventListener('change', sync);
   sync();   // progressive enhancement: only JS disables the button
 })();
 </script>
@@ -371,6 +383,7 @@ def browse(subpath: str = ""):
         parent_url=url_for("share.browse", subpath=parent) if subpath else "",
         upload_url=url_for("share.upload", subpath=subpath),
         mkdir_url=url_for("share.mkdir", subpath=subpath),
+        delete_url=url_for("share.delete"),
         human=_human_size,
         doc=_api_doc(base, auth_on),
     )
@@ -462,28 +475,48 @@ def mkdir(subpath: str = ""):
 @share_bp.route("/delete/", methods=["POST", "DELETE"])
 @share_bp.route("/delete/<path:subpath>", methods=["POST", "DELETE"])
 def delete(subpath: str = ""):
-    """Delete a file, or a directory **recursively**.
+    """Delete file(s)/directory(ies); directories go **recursively**.
 
-    Accepts ``POST`` (the browser's 🗑 button) or ``DELETE`` (``curl -X
-    DELETE``). Refuses to delete the share root itself.
+    Two shapes:
+
+    * single, for agents:  ``DELETE`` (or ``POST``) ``/delete/<path>``
+    * bulk, for the browser: ``POST /delete`` with one repeated ``sel``
+      form field per checked item.
+
+    Refuses to delete the share root. Single-delete returns
+    ``{"deleted": "<path>"}``; bulk returns ``{"deleted": [...]}``.
     """
     subpath = subpath.strip("/")
-    if not subpath:
-        abort(400, description="Refusing to delete the share root")
-
-    full = _resolve(subpath)
-    if not os.path.exists(full):
-        abort(404, description=f"No such path: {subpath}")
-
-    if os.path.isdir(full):
-        shutil.rmtree(full)
+    single = bool(subpath)
+    if single:
+        targets = [subpath]
     else:
-        os.remove(full)
+        targets = [
+            p.strip("/")
+            for p in request.values.getlist("sel")
+            if p.strip("/")
+        ]
+    if not targets:
+        abort(
+            400,
+            description="Nothing to delete (the share root cannot be deleted)",
+        )
+
+    deleted = []
+    for rel in targets:
+        full = _resolve(rel)
+        if not os.path.exists(full):
+            abort(404, description=f"No such path: {rel}")
+        if os.path.isdir(full):
+            shutil.rmtree(full)
+        else:
+            os.remove(full)
+        deleted.append(rel)
 
     if request.method == "DELETE" or _client_wants_json():
-        return jsonify({"deleted": subpath}), 200
-    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
-    return redirect(url_for("share.browse", subpath=parent))
+        return jsonify({"deleted": deleted[0] if single else deleted}), 200
+    here = deleted[0].rsplit("/", 1)[0] if "/" in deleted[0] else ""
+    return redirect(url_for("share.browse", subpath=here))
 
 
 @share_bp.route("/help")
