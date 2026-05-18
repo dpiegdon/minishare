@@ -32,10 +32,13 @@ the same time**. Concretely:
   file.
 - **Single source of truth for docs.** `_api_doc()` is the *only* API
   text. It is served verbatim at `/help` and embedded in the in-page
-  `<details>`. Never fork it. It must stay **pure ASCII**, contain no
-  characters Jinja would escape (`< > & ' "`), and use `$path` / `$dir`
-  placeholders — it is rendered with `|safe`, so the only dynamic value
-  (`_doc_base()`, Host-derived) is sanitised to URL-safe chars.
+  `<details>`. Never fork it. It must stay **pure ASCII** and avoid the
+  HTML-significant characters `< > &` — it is rendered with `|safe`, so
+  those are *not* escaped and would corrupt the page; that's why
+  placeholders are `$path` / `$dir`, not `<path>`. Quotes (`'` `"`) are
+  fine and used deliberately in the curl examples — `|safe` no longer
+  mangles them. The only dynamic value, `_doc_base()` (Host-derived), is
+  sanitised to URL-safe chars so `|safe` stays injection-proof.
 - **Security is not optional.** All filesystem access goes through
   `_resolve()` (`werkzeug.safe_join` + realpath containment against
   symlink escape). Don't bypass it. Any path-handling change needs a
@@ -43,6 +46,13 @@ the same time**. Concretely:
 - **Submodule-safe.** All config lives under `MINISHARE_*` keys so it
   never clobbers a host app. Don't set Flask globals (e.g.
   `MAX_CONTENT_LENGTH`) unless explicitly requested.
+- **Configuration is by blueprint parameter.** In the standard
+  blueprint case, *all* configuration is passed explicitly to
+  `init_app()` / `create_app()` (`storage_dir`, `auth`, `url_prefix`,
+  `title`, `max_mb`). That is the canonical, supported surface. The
+  `MINISHARE_*` env vars and CLI flags are conveniences for the
+  standalone runner only and must never be *required* to embed the
+  blueprint — a host app configures it purely through parameters.
 - **Progressive enhancement.** JS only *enhances* (disable buttons until
   valid, drag-and-drop). The app must remain usable with JS off; never
   hard-disable a control in markup.
