@@ -218,7 +218,7 @@ _PAGE = """<!doctype html>
   .crumb{color:#666}
 </style>
 <h1>📂 minishare
-  <span class="crumb">/
+  <span class="crumb"><a href="{{ root_url }}">/</a>
   {%- for c, href in crumbs -%}
     <a href="{{ href }}">{{ c }}</a>/
   {%- endfor -%}
@@ -351,6 +351,7 @@ def browse(subpath: str = ""):
         subpath=subpath,
         entries=entries,
         crumbs=crumbs,
+        root_url=url_for("share.browse"),
         parent_url=url_for("share.browse", subpath=parent) if subpath else "",
         upload_url=url_for("share.upload", subpath=subpath),
         mkdir_url=url_for("share.mkdir", subpath=subpath),
