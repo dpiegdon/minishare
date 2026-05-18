@@ -140,8 +140,9 @@ minishare/share.py      # the self-contained "share" blueprint (all routes)
 minishare/cli.py        # argparse runner (python -m minishare)
 minishare/__main__.py   # enables `python -m minishare`
 run.py                  # dev shim -> minishare.cli:main
-tests/                  # pytest suite
+tests/ + conftest.py    # pytest suite
 pyproject.toml          # installable: pip install -e ".[dev]"
+AGENTS.md               # project knowledge + dev criteria (read first)
 ```
 
 > Development server only — not hardened for untrusted public exposure.
