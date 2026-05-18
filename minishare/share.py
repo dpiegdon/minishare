@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import shutil
 from datetime import datetime
 
@@ -42,10 +43,15 @@ def _doc_base() -> str:
     Derived from the single-rule ``/help`` endpoint so it is deterministic
     regardless of where the blueprint is mounted (``browse`` has several
     rules, so ``url_for`` on it is ambiguous for doc purposes).
+
+    Sanitised to URL-safe characters only: the docs are rendered with
+    ``|safe`` (so quotes and text are not HTML-mangled), so a crafted
+    Host header must not be able to inject markup through this value.
     """
-    return url_for("share.help_text", _external=True)[: -len("/help")].rstrip(
+    raw = url_for("share.help_text", _external=True)[: -len("/help")].rstrip(
         "/"
     )
+    return re.sub(r"[^A-Za-z0-9:/._~%@\[\]-]", "", raw)
 
 
 def _resolve(subpath: str | None) -> str:
@@ -130,7 +136,7 @@ def _api_doc(base: str, auth_on: bool = False) -> str:
         if auth_on
         else ""
     )
-    return f"""minishare — API (the HTML pages are just a UI; the API is
+    return f"""minishare - API (the HTML pages are just a UI; the API is
 self-service for agents/scripts).
 
 AGENTS: add ?format=json to any listing for a JSON response; mutating
@@ -139,14 +145,14 @@ also at GET {base}/help .
 {auth_note}
 
 Browse (HTML):      GET    {base}/
-Browse (JSON):      GET    {base}/browse/<path>?format=json
-Download a file:    GET    {base}/get/<path>
-View inline:        GET    {base}/get/<path>?inline=1
-Upload (multipart): POST   {base}/upload[/<dir>]    field name: file
-Upload (raw body):  PUT    {base}/put/<path>        body = file contents
-Make a directory:   POST   {base}/mkdir/<path>      (mkdir -p)
-Delete file or dir: DELETE {base}/delete/<path>     (dirs: RECURSIVE)
-                    (browsers POST to that same /delete/<path> URL)
+Browse (JSON):      GET    {base}/browse/$path?format=json
+Download a file:    GET    {base}/get/$path
+View inline:        GET    {base}/get/$path?inline=1
+Upload (multipart): POST   {base}/upload[/$dir]    field name: file
+Upload (raw body):  PUT    {base}/put/$path        body = file contents
+Make a directory:   POST   {base}/mkdir/$path      (mkdir -p)
+Delete file or dir: DELETE {base}/delete/$path     (dirs: RECURSIVE)
+                    (browsers POST to that same /delete/$path URL)
 This help (text):   GET    {base}/help
 
 curl examples
@@ -169,7 +175,7 @@ curl examples
   curl -X DELETE '{base}/delete/docs/old-stuff'
 
 Notes
-  * <path> is relative to the share root; "../" and absolute paths are rejected.
+  * $path is relative to the share root; "../" and absolute paths are rejected.
   * PUT creates missing parent directories and overwrites existing files.
   * mkdir is idempotent; deleting a directory removes it RECURSIVELY.
   * No auth configured == anyone who can reach the server can also delete.
@@ -200,6 +206,10 @@ _PAGE = """<!doctype html>
   pre{white-space:pre-wrap;font-size:13px;margin:0}
   .crumb{color:#666}
 </style>
+<details>
+  <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
+  <pre>{{ doc|safe }}</pre>
+</details>
 <h1>📂 <a href="{{ root_url }}" title="go to share root">{{ title }}</a>
   <span class="crumb">/
   {%- for c, href in crumbs -%}
@@ -207,11 +217,6 @@ _PAGE = """<!doctype html>
   {%- endfor -%}
   </span>
 </h1>
-
-<details>
-  <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
-  <pre>{{ doc }}</pre>
-</details>
 
 <table>
   <tr><th>Name</th><th class="r">Size</th><th>Modified</th><th></th></tr>

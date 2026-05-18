@@ -4,11 +4,13 @@ A minimal Flask **blueprint-based** file-sharing server: browse, download,
 upload, create and delete (files & directories). Built to be trivially
 usable by **both humans and agents**:
 
-- the full API/curl reference is documented in **one** place and shown
-  two ways: served verbatim at `GET /help` (plain text), and embedded
-  near the top of every listing page in a **collapsed** `<details>`
-  block — folded away for humans, but present in the raw HTML so an
-  agent doing `curl /` sees it immediately;
+- the full API/curl reference is documented in **one** place
+  (`_api_doc`) and shown two ways: served verbatim at `GET /help`
+  (plain text), and embedded at the **very top** of every listing page
+  (above the breadcrumb) in a **collapsed** `<details>` block — folded
+  away for humans, but present in the raw HTML so an agent doing
+  `curl /` sees it first. The text is pure ASCII and rendered unescaped
+  (no `&lt;` / `&#39;` noise) — placeholders read `$path` / `$dir`;
 - any listing can be requested as JSON (`?format=json`), and mutating
   endpoints reply with JSON to agents but redirect browsers back to the UI.
 
