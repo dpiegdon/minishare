@@ -286,7 +286,8 @@ _PAGE = """<!doctype html>
   button:disabled{opacity:.45;cursor:not-allowed}
   form.drop{outline:2px dashed #06c;outline-offset:-4px}
   .hint{color:#000;font-weight:600;margin-left:.4rem}
-  td.sel,th.sel{text-align:center;width:5rem}
+  td.sel,th.sel{text-align:center;width:8rem}
+  #selall{font-size:12px;margin-right:.3rem}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
@@ -310,7 +311,10 @@ _PAGE = """<!doctype html>
       onsubmit="return confirm('Delete ' + this.querySelectorAll('input[name=sel]:checked').length + ' selected item(s)? Folders are deleted recursively. This cannot be undone.')">
 <table>
   <tr><th>Name</th><th class="r">Size</th><th>Modified</th>
-      <th class="sel"><button type="submit" id="delbtn" title="delete the selected items">Delete</button></th></tr>
+      <th class="sel">
+        <button type="button" id="selall" title="select / clear all">all</button>
+        <button type="submit" id="delbtn" title="delete the selected items">Delete</button>
+      </th></tr>
   {% if subpath %}
   <tr><td class="dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td><td></td></tr>
   {% endif %}
@@ -373,12 +377,20 @@ _PAGE = """<!doctype html>
 })();
 (function () {
   var btn = document.getElementById('delbtn'),
+      all = document.getElementById('selall'),
       form = document.getElementById('delform');
   if (!btn || !form) return;
   function sync() {
     btn.disabled = !form.querySelector('input[name=sel]:checked');
   }
   form.addEventListener('change', sync);
+  if (all) all.addEventListener('click', function () {
+    var boxes = form.querySelectorAll('input[name=sel]');
+    var every = boxes.length > 0;
+    boxes.forEach(function (b) { if (!b.checked) every = false; });
+    boxes.forEach(function (b) { b.checked = !every; });  // toggle select/clear
+    sync();
+  });
   sync();   // progressive enhancement: only JS disables the button
 })();
 </script>
@@ -408,13 +420,11 @@ def _enforce_auth():
     if ok:
         return None
 
-    body = (
-        "401 Unauthorized - this minishare requires HTTP Basic auth.\n"
-        "Humans: your browser will prompt for username and password.\n"
-        "CLI / agents:  curl -u USER:PASS <url>\n"
+    # Deliberately generic: no software name / hints in body or realm.
+    resp = current_app.response_class(
+        "Unauthorized Access\n", status=401, mimetype="text/plain"
     )
-    resp = current_app.response_class(body, status=401, mimetype="text/plain")
-    resp.headers["WWW-Authenticate"] = 'Basic realm="minishare"'
+    resp.headers["WWW-Authenticate"] = 'Basic realm="Restricted"'
     return resp
 
 

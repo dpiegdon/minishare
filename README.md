@@ -101,9 +101,10 @@ how to authenticate, and `GET /help` documents it when auth is enabled.
 From a **browser** every listing page lets a human browse into/out of
 directories, download files, upload files (multi-select or drag & drop),
 create a folder, and delete entries: tick the checkboxes in the last
-column and hit **Delete** (greyed out until something is selected, with
-a confirm prompt). The same actions are available as documented
-endpoints for **agents/scripts**:
+column (or the **all** button to select/clear everything) and hit
+**Delete** (greyed out until something is selected, with a confirm
+prompt). The same actions are available as documented endpoints for
+**agents/scripts**:
 
 | Action            | Request                                       |
 |-------------------|-----------------------------------------------|

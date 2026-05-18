@@ -318,6 +318,9 @@ def test_auth_enforced(root):
     r = c.get("/help")
     assert r.status_code == 401
     assert r.headers["WWW-Authenticate"].startswith("Basic")
+    # generic 401: must not leak the software name in body or realm
+    assert r.get_data(as_text=True).strip() == "Unauthorized Access"
+    assert "minishare" not in r.headers["WWW-Authenticate"].lower()
     assert c.get("/help", headers=auth_header("u", "x")).status_code == 401
     assert c.get("/help", headers=auth_header("v", "p")).status_code == 401
     assert c.get("/help", headers=auth_header("u", "p")).status_code == 200
@@ -365,6 +368,8 @@ def test_delete_ui_is_multiselect(client, root):
     assert 'type="checkbox" name="sel" value="f.txt"' in html
     assert 'id="delbtn"' in html and 'id="delbtn" disabled' not in html
     assert "\U0001f5d1" not in html  # old per-row trash button gone
+    # select-all is a plain button (must not submit/trigger the delete form)
+    assert '<button type="button" id="selall"' in html
 
 
 def test_content_negotiation_json_variants(client, root):
