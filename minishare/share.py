@@ -242,8 +242,8 @@ _PAGE = """<!doctype html>
     <td>{{ e.modified }}</td>
     <td>
       <form method="post" action="{{ url_for('share.delete', subpath=e.path) }}"
-            class="inline"
-            onsubmit="return confirm('Delete this {{ e.type }}? Folders are removed recursively.')">
+            class="inline" data-n="{{ e.name }}"
+            onsubmit="return confirm({% if e.type == 'dir' %}'Delete directory “' + this.dataset.n + '” and ALL its contents? This cannot be undone.'{% else %}'Delete file “' + this.dataset.n + '”?'{% endif %})">
         <button type="submit" title="delete">🗑</button>
       </form>
     </td>
