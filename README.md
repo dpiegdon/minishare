@@ -56,7 +56,8 @@ init_app(app, storage_dir="shared", url_prefix="/files",
 templates/static needed). Mounting under `url_prefix` keeps it clear of your
 own routes, and all in-page docs / `url_for`s respect that prefix. For full
 manual control, register `share_bp` yourself after setting the
-`MINISHARE_DIR` / `MINISHARE_AUTH` config keys.
+`MINISHARE_DIR` config key (and optionally `MINISHARE_AUTH` /
+`MINISHARE_TITLE`).
 
 ## Authentication (optional)
 
@@ -85,7 +86,8 @@ how to authenticate, and `GET /help` documents it when auth is enabled.
 
 From a **browser** every listing page lets a human browse into/out of
 directories, download files, upload files, create a folder, and delete
-any entry (🗑 button, with a confirm prompt). The same actions are
+any entry (🗑 button, with a confirm prompt that names the item). The
+same actions are
 available as documented endpoints for **agents/scripts**:
 
 | Action            | Request                                       |
