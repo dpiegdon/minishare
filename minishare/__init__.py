@@ -44,11 +44,15 @@ def init_app(
     auth: dict[str, str] | None = None,
     url_prefix: str | None = None,
     max_mb: int | None = None,
+    title: str | None = None,
 ) -> Flask:
     """Mount the file-sharing blueprint onto an existing Flask ``app``.
 
     Use this when embedding minishare as a submodule in a bigger project.
 
+    :param title: brand/vendor name shown in the page title and as the
+        clickable "home" link in the header. Defaults to the
+        ``MINISHARE_TITLE`` env var, or ``"minishare"``.
     :param storage_dir: directory that holds shared files. Defaults to the
         ``MINISHARE_DIR`` env var, or ``<cwd>/data``. Created if missing.
     :param auth: optional ``{username: password}`` dict. If non-empty,
@@ -70,6 +74,10 @@ def init_app(
     os.makedirs(storage_dir, exist_ok=True)
     app.config["MINISHARE_DIR"] = storage_dir
 
+    app.config["MINISHARE_TITLE"] = (
+        title or os.environ.get("MINISHARE_TITLE") or "minishare"
+    )
+
     if auth is None:
         env_auth = os.environ.get("MINISHARE_AUTH")
         auth = _parse_auth_env(env_auth) if env_auth else None
@@ -89,6 +97,7 @@ def create_app(
     storage_dir: str | None = None,
     auth: dict[str, str] | None = None,
     url_prefix: str | None = None,
+    title: str | None = None,
 ) -> Flask:
     """Build a standalone Flask app serving only minishare.
 
@@ -97,5 +106,9 @@ def create_app(
     """
     app = Flask(__name__)
     return init_app(
-        app, storage_dir=storage_dir, auth=auth, url_prefix=url_prefix
+        app,
+        storage_dir=storage_dir,
+        auth=auth,
+        url_prefix=url_prefix,
+        title=title,
     )

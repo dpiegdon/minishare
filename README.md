@@ -21,11 +21,15 @@ python -m minishare                 # serves ./data on http://0.0.0.0:8000, open
 python -m minishare -d /srv/files -p 9000
 python -m minishare -a alice:s3cret -a bob:hunter2   # require HTTP Basic auth
 python -m minishare -x /files                        # mount under a prefix
+python -m minishare -t "Acme Files"                  # custom brand name
 ```
 
 `python run.py …` still works as a dev shim. The shared directory is created
 if missing. Override via `-d/--dir` or the `MINISHARE_DIR` env var. Cap
-upload size with `MINISHARE_MAX_MB`.
+upload size with `MINISHARE_MAX_MB`. The header brand / page title shown to
+users defaults to `minishare`; override with `-t/--title`, the `title=`
+factory argument, or the `MINISHARE_TITLE` env var. Clicking the brand goes
+back to the share root.
 
 ## Use as a git submodule
 
@@ -45,7 +49,7 @@ from minishare import init_app          # or: from minishare import share_bp
 
 app = Flask(__name__)
 init_app(app, storage_dir="shared", url_prefix="/files",
-         auth={"alice": "s3cret"})       # all args optional
+         auth={"alice": "s3cret"}, title="Acme Files")   # all args optional
 ```
 
 `init_app` registers the self-contained `share` blueprint (no extra

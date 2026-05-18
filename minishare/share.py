@@ -197,7 +197,7 @@ _PAGE = """<!doctype html>
 <!--
 {{ agent_hint|safe }}
 -->
-<title>minishare · /{{ subpath }}</title>
+<title>{{ title }} · /{{ subpath }}</title>
 <style>
   body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem}
   h1{font-size:1.1rem}
@@ -217,8 +217,8 @@ _PAGE = """<!doctype html>
   pre{white-space:pre-wrap;font-size:13px;margin:0}
   .crumb{color:#666}
 </style>
-<h1>📂 minishare
-  <span class="crumb"><a href="{{ root_url }}">/</a>
+<h1>📂 <a href="{{ root_url }}" title="go to share root">{{ title }}</a>
+  <span class="crumb">/
   {%- for c, href in crumbs -%}
     <a href="{{ href }}">{{ c }}</a>/
   {%- endfor -%}
@@ -349,6 +349,7 @@ def browse(subpath: str = ""):
     return render_template_string(
         _PAGE,
         subpath=subpath,
+        title=current_app.config.get("MINISHARE_TITLE") or "minishare",
         entries=entries,
         crumbs=crumbs,
         root_url=url_for("share.browse"),

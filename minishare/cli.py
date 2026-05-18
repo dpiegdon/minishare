@@ -23,6 +23,9 @@ def main(argv: list[str] | None = None) -> None:
         "-x", "--prefix", help="mount under this URL prefix, e.g. /files"
     )
     p.add_argument(
+        "-t", "--title", help="brand name shown in the header (default: minishare)"
+    )
+    p.add_argument(
         "-a",
         "--auth",
         action="append",
@@ -41,7 +44,10 @@ def main(argv: list[str] | None = None) -> None:
             auth[user] = pw
 
     app = create_app(
-        storage_dir=args.dir, auth=auth, url_prefix=args.prefix
+        storage_dir=args.dir,
+        auth=auth,
+        url_prefix=args.prefix,
+        title=args.title,
     )
     where = (args.prefix or "").rstrip("/") + "/"
     print(f"minishare serving {app.config['MINISHARE_DIR']} on "
