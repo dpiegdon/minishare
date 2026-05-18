@@ -1,9 +1,17 @@
 # minishare
 
 A minimal Flask **blueprint-based** file-sharing server: browse, download,
-upload. Built to be trivially usable by **both humans and agents** — every
-listing page documents the API inline, `GET /help` returns the same docs as
-plain text, and any listing can be requested as JSON.
+upload, create and delete (files & directories). Built to be trivially
+usable by **both humans and agents**:
+
+- every listing page carries a compact machine-targeted `<!-- … -->`
+  comment as the first thing in the document — an agent doing `curl /`
+  sees how to drive the API before any rendering — plus a **collapsed**
+  `<details>` block with the full API/curl reference (hidden from humans
+  by default, still in the DOM for text-reading agents);
+- `GET /help` returns the same docs as plain text;
+- any listing can be requested as JSON (`?format=json`), and mutating
+  endpoints reply with JSON to agents but redirect browsers back to the UI.
 
 ## Run standalone
 
@@ -71,26 +79,38 @@ how to authenticate, and `GET /help` documents it when auth is enabled.
 
 ## API
 
-| Action            | Request                                   |
-|-------------------|-------------------------------------------|
-| Browse (HTML)     | `GET /` · `GET /browse/<path>`            |
-| Browse (JSON)     | `GET /browse/<path>?format=json`          |
-| Download          | `GET /get/<path>`                         |
-| View inline       | `GET /get/<path>?inline=1`                |
-| Upload (form)     | `POST /upload[/<dir>]` field `file`       |
-| Upload (raw)      | `PUT /put/<path>` body = file bytes       |
-| Docs (plain text) | `GET /help`                              |
+From a **browser** every listing page lets a human browse into/out of
+directories, download files, upload files, create a folder, and delete
+any entry (🗑 button, with a confirm prompt). The same actions are
+available as documented endpoints for **agents/scripts**:
+
+| Action            | Request                                       |
+|-------------------|-----------------------------------------------|
+| Browse (HTML)     | `GET /` · `GET /browse/<path>`                |
+| Browse (JSON)     | `GET /browse/<path>?format=json`              |
+| Download          | `GET /get/<path>`                             |
+| View inline       | `GET /get/<path>?inline=1`                    |
+| Upload (form)     | `POST /upload[/<dir>]` field `file`           |
+| Upload (raw)      | `PUT /put/<path>` body = file bytes           |
+| Create directory  | `POST /mkdir/<path>` (`mkdir -p`)             |
+| Delete file/dir   | `DELETE /delete/<path>` (dirs: **recursive**) |
+| Docs (plain text) | `GET /help`                                   |
 
 ```bash
 curl 'http://host:8000/browse/?format=json'      # list root as JSON
 curl -O 'http://host:8000/get/notes/todo.txt'    # download
 curl -F file=@report.pdf 'http://host:8000/upload/docs'   # multipart
 curl -T report.pdf 'http://host:8000/put/docs/report.pdf' # raw body
+curl -X POST 'http://host:8000/mkdir/docs/2026'           # create dir
+curl -X DELETE 'http://host:8000/delete/docs/old'         # delete (recursive)
 ```
 
 `<path>` is relative to the share root; `../` and absolute paths are
 rejected (`werkzeug.safe_join`). `PUT` creates parent directories and
-overwrites; multipart filenames are sanitized.
+overwrites; multipart filenames and new folder names are sanitized.
+Deleting a directory removes it **recursively**; the share root itself
+cannot be deleted. The browser's delete button POSTs to the same
+`/delete/<path>` URL (browsers can't send `DELETE` from a form).
 
 ## Layout
 
@@ -103,5 +123,8 @@ run.py                  # dev shim -> minishare.cli:main
 pyproject.toml          # installable: pip install -e .
 ```
 
-> Development server only — not hardened for untrusted public exposure
-> (no auth; put it behind a reverse proxy / network controls if needed).
+> Development server only — not hardened for untrusted public exposure.
+> There is no per-user permission model: anyone who can reach the server
+> (everyone, if no `auth` dict is configured) can also **delete** files
+> and directories. Configure `auth` and/or put it behind a reverse proxy
+> / network controls for anything beyond a trusted environment.

@@ -1,4 +1,4 @@
-"""The file-sharing blueprint: browse, download, upload.
+"""The file-sharing blueprint: browse, download, upload, mkdir, delete.
 
 Design goal: every page is self-documenting so that both humans and
 automated agents can use the server without external instructions. Each
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import shutil
 from datetime import datetime
 
 from flask import (
@@ -79,6 +80,17 @@ def _wants_json() -> bool:
     return "application/json" in accept and "text/html" not in accept
 
 
+def _client_wants_json() -> bool:
+    """For mutating endpoints: agents get JSON, browsers get a redirect.
+
+    Browsers send ``Accept: text/html``; curl/agents send ``*/*`` (or ask
+    for JSON explicitly), so default to JSON unless HTML was requested.
+    """
+    if _wants_json():
+        return True
+    return "text/html" not in request.headers.get("Accept", "")
+
+
 def _listing(full_dir: str, subpath: str) -> list[dict]:
     entries: list[dict] = []
     for name in sorted(os.listdir(full_dir), key=str.lower):
@@ -103,6 +115,31 @@ def _listing(full_dir: str, subpath: str) -> list[dict]:
     return entries
 
 
+def _agent_comment(base: str, auth_on: bool) -> str:
+    """Compact, machine-targeted hint embedded as an HTML comment.
+
+    Sits at the very top of every page so an agent that does ``curl /``
+    sees how to drive the API before any rendering. Deliberately free of
+    ``<``, ``>``, ``&``, quotes and ``--`` so it is a valid, unescaped
+    HTML comment.
+    """
+    auth = " Requires HTTP Basic auth (curl -u USER:PASS)." if auth_on else ""
+    return (
+        f"minishare file server — AGENTS: this page is a UI; the API is"
+        f" self-service.{auth}\n"
+        f"  Machine-readable: add ?format=json to any listing, or GET"
+        f" {base}/help for plain-text docs.\n"
+        f"  PATH is relative to the share root (.. and absolute paths"
+        f" rejected). Endpoints:\n"
+        f"    list      GET    {base}/browse/PATH?format=json\n"
+        f"    download  GET    {base}/get/PATH\n"
+        f"    upload    POST   {base}/upload/DIR   multipart field name 'file'\n"
+        f"    upload    PUT    {base}/put/PATH      raw request body\n"
+        f"    mkdir     POST   {base}/mkdir/PATH    (mkdir -p, idempotent)\n"
+        f"    delete    DELETE {base}/delete/PATH   directories: recursive\n"
+    )
+
+
 def _api_doc(base: str, auth_on: bool = False) -> str:
     """Plain-text usage, also embedded in every HTML page."""
     auth_note = (
@@ -115,13 +152,16 @@ def _api_doc(base: str, auth_on: bool = False) -> str:
     return f"""minishare — usage
 {auth_note}
 
-Browse (HTML):      GET  {base}/
-Browse (JSON):      GET  {base}/browse/<path>?format=json
-Download a file:    GET  {base}/get/<path>
-View inline:        GET  {base}/get/<path>?inline=1
-Upload (multipart): POST {base}/upload[/<dir>]      field name: file
-Upload (raw body):  PUT  {base}/put/<path>          body = file contents
-This help (text):   GET  {base}/help
+Browse (HTML):      GET    {base}/
+Browse (JSON):      GET    {base}/browse/<path>?format=json
+Download a file:    GET    {base}/get/<path>
+View inline:        GET    {base}/get/<path>?inline=1
+Upload (multipart): POST   {base}/upload[/<dir>]    field name: file
+Upload (raw body):  PUT    {base}/put/<path>        body = file contents
+Make a directory:   POST   {base}/mkdir/<path>      (mkdir -p)
+Delete file or dir: DELETE {base}/delete/<path>     (dirs: RECURSIVE)
+                    (browsers POST to that same /delete/<path> URL)
+This help (text):   GET    {base}/help
 
 curl examples
   # list the root as JSON
@@ -136,9 +176,17 @@ curl examples
   # upload raw bytes to an exact path (parent dirs auto-created)
   curl -T report.pdf '{base}/put/docs/report.pdf'
 
+  # create a directory (parents included)
+  curl -X POST '{base}/mkdir/docs/2026'
+
+  # delete a file, or a whole directory tree
+  curl -X DELETE '{base}/delete/docs/old-stuff'
+
 Notes
   * <path> is relative to the share root; "../" and absolute paths are rejected.
   * PUT creates missing parent directories and overwrites existing files.
+  * mkdir is idempotent; deleting a directory removes it RECURSIVELY.
+  * No auth configured == anyone who can reach the server can also delete.
 """
 
 
@@ -146,6 +194,9 @@ Notes
 # HTML template
 # --------------------------------------------------------------------------- #
 _PAGE = """<!doctype html>
+<!--
+{{ agent_hint|safe }}
+-->
 <title>minishare · /{{ subpath }}</title>
 <style>
   body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem}
@@ -157,6 +208,11 @@ _PAGE = """<!doctype html>
   td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
   .dir{font-weight:600}
   form{margin:1rem 0;padding:1rem;background:#f6f8fa;border-radius:6px}
+  form.inline{display:inline;margin:0;padding:0;background:none}
+  form.inline button{border:0;background:none;cursor:pointer;font-size:1rem;color:#c00;padding:0}
+  input[type=text]{padding:.25rem .4rem}
+  .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
+  .ops form{flex:1;margin:0;min-width:15rem}
   details{margin-top:2rem;background:#f6f8fa;border-radius:6px;padding:.5rem 1rem}
   pre{white-space:pre-wrap;font-size:13px;margin:0}
   .crumb{color:#666}
@@ -170,9 +226,9 @@ _PAGE = """<!doctype html>
 </h1>
 
 <table>
-  <tr><th>Name</th><th class="r">Size</th><th>Modified</th></tr>
+  <tr><th>Name</th><th class="r">Size</th><th>Modified</th><th></th></tr>
   {% if subpath %}
-  <tr><td class="dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td></tr>
+  <tr><td class="dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td><td></td></tr>
   {% endif %}
   {% for e in entries %}
   <tr>
@@ -184,20 +240,35 @@ _PAGE = """<!doctype html>
       <td class="r">{{ human(e.size) }}</td>
     {% endif %}
     <td>{{ e.modified }}</td>
+    <td>
+      <form method="post" action="{{ url_for('share.delete', subpath=e.path) }}"
+            class="inline"
+            onsubmit="return confirm('Delete this {{ e.type }}? Folders are removed recursively.')">
+        <button type="submit" title="delete">🗑</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
   {% if not entries %}
-  <tr><td colspan="3"><em>empty directory</em></td></tr>
+  <tr><td colspan="4"><em>empty directory</em></td></tr>
   {% endif %}
 </table>
 
-<form method="post" action="{{ upload_url }}" enctype="multipart/form-data">
-  <strong>Upload here:</strong>
-  <input type="file" name="file" multiple required>
-  <button type="submit">Upload</button>
-</form>
+<div class="ops">
+  <form method="post" action="{{ mkdir_url }}">
+    <strong>New folder here:</strong>
+    <input type="text" name="name" placeholder="folder name" required>
+    <button type="submit">Create</button>
+  </form>
 
-<details open>
+  <form method="post" action="{{ upload_url }}" enctype="multipart/form-data">
+    <strong>Upload here:</strong>
+    <input type="file" name="file" multiple required>
+    <button type="submit">Upload</button>
+  </form>
+</div>
+
+<details>
   <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
   <pre>{{ doc }}</pre>
 </details>
@@ -273,6 +344,8 @@ def browse(subpath: str = ""):
         crumbs.append((part, url_for("share.browse", subpath=acc)))
 
     parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    base = _doc_base()
+    auth_on = bool(current_app.config.get("MINISHARE_AUTH"))
     return render_template_string(
         _PAGE,
         subpath=subpath,
@@ -280,10 +353,10 @@ def browse(subpath: str = ""):
         crumbs=crumbs,
         parent_url=url_for("share.browse", subpath=parent) if subpath else "",
         upload_url=url_for("share.upload", subpath=subpath),
+        mkdir_url=url_for("share.mkdir", subpath=subpath),
         human=_human_size,
-        doc=_api_doc(
-            _doc_base(), bool(current_app.config.get("MINISHARE_AUTH"))
-        ),
+        doc=_api_doc(base, auth_on),
+        agent_hint=_agent_comment(base, auth_on),
     )
 
 
@@ -320,9 +393,7 @@ def upload(subpath: str = ""):
         f.save(os.path.join(dest_dir, name))
         saved.append((subpath + "/" + name).lstrip("/"))
 
-    if _wants_json() or request.headers.get("Accept", "").startswith(
-        "application/json"
-    ):
+    if _client_wants_json():
         return jsonify({"saved": saved}), 201
     return redirect(url_for("share.browse", subpath=subpath))
 
@@ -337,6 +408,66 @@ def put(subpath: str):
     with open(full, "wb") as fh:
         fh.write(request.get_data())
     return jsonify({"saved": _rel(full), "size": os.path.getsize(full)}), 201
+
+
+@share_bp.route("/mkdir", methods=["POST"])
+@share_bp.route("/mkdir/", methods=["POST"])
+@share_bp.route("/mkdir/<path:subpath>", methods=["POST"])
+def mkdir(subpath: str = ""):
+    """Create a directory, ``mkdir -p`` style (idempotent).
+
+    ``POST /mkdir/<path>`` creates ``<path>``. If a ``name`` form/query
+    field is supplied, ``<path>/<name>`` is created instead — that is how
+    the browser's "New folder" box works (it posts the current directory
+    as ``<path>`` and the typed name as ``name``).
+    """
+    subpath = subpath.strip("/")
+    name = (request.values.get("name") or "").strip()
+    if name:
+        name = secure_filename(name)
+        if not name:
+            abort(400, description="Invalid folder name")
+        subpath = (subpath + "/" + name).strip("/")
+    if not subpath:
+        abort(400, description="No directory name given")
+
+    full = _resolve(subpath)
+    if os.path.isfile(full):
+        abort(400, description="A file with that name already exists")
+    os.makedirs(full, exist_ok=True)
+
+    if _client_wants_json():
+        return jsonify({"created": _rel(full)}), 201
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    return redirect(url_for("share.browse", subpath=parent))
+
+
+@share_bp.route("/delete", methods=["POST", "DELETE"])
+@share_bp.route("/delete/", methods=["POST", "DELETE"])
+@share_bp.route("/delete/<path:subpath>", methods=["POST", "DELETE"])
+def delete(subpath: str = ""):
+    """Delete a file, or a directory **recursively**.
+
+    Accepts ``POST`` (the browser's 🗑 button) or ``DELETE`` (``curl -X
+    DELETE``). Refuses to delete the share root itself.
+    """
+    subpath = subpath.strip("/")
+    if not subpath:
+        abort(400, description="Refusing to delete the share root")
+
+    full = _resolve(subpath)
+    if not os.path.exists(full):
+        abort(404, description=f"No such path: {subpath}")
+
+    if os.path.isdir(full):
+        shutil.rmtree(full)
+    else:
+        os.remove(full)
+
+    if request.method == "DELETE" or _client_wants_json():
+        return jsonify({"deleted": subpath}), 200
+    parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
+    return redirect(url_for("share.browse", subpath=parent))
 
 
 @share_bp.route("/help")
