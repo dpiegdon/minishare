@@ -59,15 +59,26 @@ def _resolve(subpath: str | None) -> str:
 
     ``werkzeug.safe_join`` returns ``None`` for anything that would escape
     the root (``..``, absolute paths, etc.); we turn that into a 400.
+    As defence in depth we also canonicalise the path and reject anything
+    that resolves (e.g. via a symlink) outside the storage root.
     """
-    full = safe_join(_storage_root(), subpath or "")
+    root = _storage_root()
+    full = safe_join(root, subpath or "")
     if full is None:
+        abort(400, description="Illegal path")
+    real_root = os.path.realpath(root)
+    real_full = os.path.realpath(full)
+    if real_full != real_root and not real_full.startswith(
+        real_root + os.sep
+    ):
         abort(400, description="Illegal path")
     return full
 
 
 def _rel(full: str) -> str:
-    return os.path.relpath(full, _storage_root()).replace(os.sep, "/").lstrip(".")
+    """Path of ``full`` relative to the storage root, '/'-separated."""
+    rel = os.path.relpath(full, _storage_root()).replace(os.sep, "/")
+    return "" if rel == "." else rel
 
 
 def _human_size(num: int) -> str:
@@ -95,6 +106,18 @@ def _client_wants_json() -> bool:
     if _wants_json():
         return True
     return "text/html" not in request.headers.get("Accept", "")
+
+
+def _respond(payload: dict, redirect_subpath: str, status: int = 200):
+    """Reply to a mutating request.
+
+    Agents (and ``DELETE``) get ``payload`` as JSON; browsers get a
+    redirect back to the listing they were on. Centralised so upload /
+    mkdir / delete behave identically.
+    """
+    if request.method == "DELETE" or _client_wants_json():
+        return jsonify(payload), status
+    return redirect(url_for("share.browse", subpath=redirect_subpath))
 
 
 def _listing(full_dir: str, subpath: str) -> list[dict]:
@@ -261,8 +284,8 @@ _PAGE = """<!doctype html>
 
   <form method="post" action="{{ upload_url }}" enctype="multipart/form-data" id="up">
     <input type="file" name="file" id="upf" multiple required>
+    <span class="hint">&larr; or drop files onto the picker</span>
     <button type="submit" id="upb">Upload files</button>
-    <span class="hint">or drop files here</span>
   </form>
 </div>
 <script>
@@ -326,7 +349,7 @@ def _enforce_auth():
         return None
 
     body = (
-        "401 Unauthorized — this minishare requires HTTP Basic auth.\n"
+        "401 Unauthorized - this minishare requires HTTP Basic auth.\n"
         "Humans: your browser will prompt for username and password.\n"
         "CLI / agents:  curl -u USER:PASS <url>\n"
     )
@@ -422,9 +445,9 @@ def upload(subpath: str = ""):
         f.save(os.path.join(dest_dir, name))
         saved.append((subpath + "/" + name).lstrip("/"))
 
-    if _client_wants_json():
-        return jsonify({"saved": saved}), 201
-    return redirect(url_for("share.browse", subpath=subpath))
+    if not saved:
+        abort(400, description="No usable filenames in the upload")
+    return _respond({"saved": saved}, subpath, 201)
 
 
 @share_bp.route("/put/<path:subpath>", methods=["PUT"])
@@ -465,10 +488,8 @@ def mkdir(subpath: str = ""):
         abort(400, description="A file with that name already exists")
     os.makedirs(full, exist_ok=True)
 
-    if _client_wants_json():
-        return jsonify({"created": _rel(full)}), 201
     parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
-    return redirect(url_for("share.browse", subpath=parent))
+    return _respond({"created": _rel(full)}, parent, 201)
 
 
 @share_bp.route("/delete", methods=["POST", "DELETE"])
@@ -502,21 +523,24 @@ def delete(subpath: str = ""):
             description="Nothing to delete (the share root cannot be deleted)",
         )
 
-    deleted = []
+    # Resolve and existence-check everything first, so a bad entry does
+    # not leave a half-applied bulk delete.
+    fulls = []
     for rel in targets:
         full = _resolve(rel)
         if not os.path.exists(full):
             abort(404, description=f"No such path: {rel}")
+        fulls.append(full)
+
+    for full in fulls:
         if os.path.isdir(full):
             shutil.rmtree(full)
         else:
             os.remove(full)
-        deleted.append(rel)
 
-    if request.method == "DELETE" or _client_wants_json():
-        return jsonify({"deleted": deleted[0] if single else deleted}), 200
+    deleted = targets
     here = deleted[0].rsplit("/", 1)[0] if "/" in deleted[0] else ""
-    return redirect(url_for("share.browse", subpath=here))
+    return _respond({"deleted": deleted[0] if single else deleted}, here)
 
 
 @share_bp.route("/help")

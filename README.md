@@ -124,6 +124,14 @@ checked rows as repeated `sel=<path>` fields to `/delete`
 (reply `{"deleted": [...]}`), since browsers can't send `DELETE` from a
 form.
 
+## Tests
+
+```bash
+pip install -e ".[dev]"   # Flask + pytest
+pytest                    # 34 tests: routes, auth, traversal/symlink,
+                          # content negotiation, single-source docs, UI
+```
+
 ## Layout
 
 ```
@@ -132,7 +140,8 @@ minishare/share.py      # the self-contained "share" blueprint (all routes)
 minishare/cli.py        # argparse runner (python -m minishare)
 minishare/__main__.py   # enables `python -m minishare`
 run.py                  # dev shim -> minishare.cli:main
-pyproject.toml          # installable: pip install -e .
+tests/                  # pytest suite
+pyproject.toml          # installable: pip install -e ".[dev]"
 ```
 
 > Development server only — not hardened for untrusted public exposure.
