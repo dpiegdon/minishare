@@ -202,12 +202,13 @@ _PAGE = """<!doctype html>
   input[type=text]{padding:.25rem .4rem}
   .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
   .ops form{flex:1;margin:0;min-width:15rem}
-  details{margin:1rem 0;background:#f6f8fa;border-radius:6px;padding:.5rem 1rem}
-  pre{white-space:pre-wrap;font-size:13px;margin:0}
+  details{margin:.5rem 0}
+  summary{color:#aaa;font-size:12px;cursor:pointer}
+  pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
   .crumb{color:#666}
 </style>
 <details>
-  <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
+  <summary>CLI / API usage (for agents &amp; scripts)</summary>
   <pre>{{ doc|safe }}</pre>
 </details>
 <h1>📂 <a href="{{ root_url }}" title="go to share root">{{ title }}</a>
