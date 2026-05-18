@@ -115,33 +115,14 @@ def _listing(full_dir: str, subpath: str) -> list[dict]:
     return entries
 
 
-def _agent_comment(base: str, auth_on: bool) -> str:
-    """Compact, machine-targeted hint embedded as an HTML comment.
-
-    Sits at the very top of every page so an agent that does ``curl /``
-    sees how to drive the API before any rendering. Deliberately free of
-    ``<``, ``>``, ``&``, quotes and ``--`` so it is a valid, unescaped
-    HTML comment.
-    """
-    auth = " Requires HTTP Basic auth (curl -u USER:PASS)." if auth_on else ""
-    return (
-        f"minishare file server — AGENTS: this page is a UI; the API is"
-        f" self-service.{auth}\n"
-        f"  Machine-readable: add ?format=json to any listing, or GET"
-        f" {base}/help for plain-text docs.\n"
-        f"  PATH is relative to the share root (.. and absolute paths"
-        f" rejected). Endpoints:\n"
-        f"    list      GET    {base}/browse/PATH?format=json\n"
-        f"    download  GET    {base}/get/PATH\n"
-        f"    upload    POST   {base}/upload/DIR   multipart field name 'file'\n"
-        f"    upload    PUT    {base}/put/PATH      raw request body\n"
-        f"    mkdir     POST   {base}/mkdir/PATH    (mkdir -p, idempotent)\n"
-        f"    delete    DELETE {base}/delete/PATH   directories: recursive\n"
-    )
-
-
 def _api_doc(base: str, auth_on: bool = False) -> str:
-    """Plain-text usage, also embedded in every HTML page."""
+    """The single source of API documentation (primary audience: agents).
+
+    Served verbatim at ``GET /help`` (plain text) and embedded in every
+    HTML listing's folded ``<details>`` block near the top of the page —
+    an agent fetching the page sees this in the raw HTML even though it
+    is visually collapsed for humans. Edit it here only, once.
+    """
     auth_note = (
         "\nAuthentication\n"
         "  This server requires HTTP Basic auth. Send credentials with every\n"
@@ -149,7 +130,12 @@ def _api_doc(base: str, auth_on: bool = False) -> str:
         if auth_on
         else ""
     )
-    return f"""minishare — usage
+    return f"""minishare — API (the HTML pages are just a UI; the API is
+self-service for agents/scripts).
+
+AGENTS: add ?format=json to any listing for a JSON response; mutating
+endpoints already return JSON to non-browser clients. This exact text is
+also at GET {base}/help .
 {auth_note}
 
 Browse (HTML):      GET    {base}/
@@ -194,9 +180,6 @@ Notes
 # HTML template
 # --------------------------------------------------------------------------- #
 _PAGE = """<!doctype html>
-<!--
-{{ agent_hint|safe }}
--->
 <title>{{ title }} · /{{ subpath }}</title>
 <style>
   body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem}
@@ -213,7 +196,7 @@ _PAGE = """<!doctype html>
   input[type=text]{padding:.25rem .4rem}
   .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
   .ops form{flex:1;margin:0;min-width:15rem}
-  details{margin-top:2rem;background:#f6f8fa;border-radius:6px;padding:.5rem 1rem}
+  details{margin:1rem 0;background:#f6f8fa;border-radius:6px;padding:.5rem 1rem}
   pre{white-space:pre-wrap;font-size:13px;margin:0}
   .crumb{color:#666}
 </style>
@@ -224,6 +207,11 @@ _PAGE = """<!doctype html>
   {%- endfor -%}
   </span>
 </h1>
+
+<details>
+  <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
+  <pre>{{ doc }}</pre>
+</details>
 
 <table>
   <tr><th>Name</th><th class="r">Size</th><th>Modified</th><th></th></tr>
@@ -267,11 +255,6 @@ _PAGE = """<!doctype html>
     <button type="submit">Upload</button>
   </form>
 </div>
-
-<details>
-  <summary><strong>CLI / API usage</strong> (for agents &amp; scripts)</summary>
-  <pre>{{ doc }}</pre>
-</details>
 """
 
 
@@ -358,7 +341,6 @@ def browse(subpath: str = ""):
         mkdir_url=url_for("share.mkdir", subpath=subpath),
         human=_human_size,
         doc=_api_doc(base, auth_on),
-        agent_hint=_agent_comment(base, auth_on),
     )
 
 
