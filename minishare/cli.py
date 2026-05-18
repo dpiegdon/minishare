@@ -41,6 +41,13 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         help="reject uploads once the store reaches N MB (default: unlimited)",
     )
+    p.add_argument(
+        "--auth-rate-limit",
+        type=float,
+        metavar="SECONDS",
+        help="min seconds between failed auth attempts per IP "
+        "(default 2.0; 0 disables; only with --auth)",
+    )
     p.add_argument("--debug", action="store_true", help="enable Flask debug")
     args = p.parse_args(argv)
 
@@ -58,6 +65,7 @@ def main(argv: list[str] | None = None) -> None:
         title=args.title,
         max_mb=args.max_mb,
         max_total_mb=args.max_total_mb,
+        auth_rate_limit=args.auth_rate_limit,
     )
     cfg = app.blueprints["minishare"].ms_config
     where = (args.prefix or "").rstrip("/") + "/"

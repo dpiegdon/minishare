@@ -53,6 +53,11 @@ def _env_int(name: str) -> int | None:
     return int(raw) if raw else None
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    return float(raw) if raw else default
+
+
 def create_app(
     storage_dir: str | None = None,
     auth: dict[str, str] | None = None,
@@ -60,13 +65,15 @@ def create_app(
     title: str | None = None,
     max_mb: int | None = None,
     max_total_mb: int | None = None,
+    auth_rate_limit: float | None = None,
 ) -> Flask:
     """Build a standalone Flask app serving a single minishare instance.
 
     For the standalone runner only: parameters fall back to
     ``MINISHARE_DIR`` / ``MINISHARE_AUTH`` / ``MINISHARE_TITLE`` /
-    ``MINISHARE_MAX_MB`` / ``MINISHARE_MAX_TOTAL_MB``. To embed in a host
-    app, use :func:`make_blueprint` and register it yourself.
+    ``MINISHARE_MAX_MB`` / ``MINISHARE_MAX_TOTAL_MB`` /
+    ``MINISHARE_AUTH_RATE_LIMIT``. To embed in a host app, use
+    :func:`make_blueprint` and register it yourself.
     """
     storage_dir = (
         storage_dir
@@ -82,6 +89,8 @@ def create_app(
         max_mb = _env_int("MINISHARE_MAX_MB")
     if max_total_mb is None:
         max_total_mb = _env_int("MINISHARE_MAX_TOTAL_MB")
+    if auth_rate_limit is None:
+        auth_rate_limit = _env_float("MINISHARE_AUTH_RATE_LIMIT", 2.0)
 
     app = Flask(__name__)
     app.register_blueprint(
@@ -91,6 +100,7 @@ def create_app(
             title=title,
             max_mb=max_mb,
             max_total_mb=max_total_mb,
+            auth_rate_limit=auth_rate_limit,
         ),
         url_prefix=url_prefix,
     )

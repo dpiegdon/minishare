@@ -49,7 +49,12 @@ the same time**. Concretely:
   `Referrer-Policy` via `_security_headers`; mutating requests pass
   `_csrf_guard` (same-origin `Origin`/`Referer`, but curl/agents with
   neither are allowed — keep that, it's the dual-audience contract);
-  the 401 stays generic (no software name in body or realm).
+  the 401 stays generic (no software name in body or realm). Auth has a
+  per-IP brute-force backoff (`auth_rate_limit`, default 2 s, per-blueprint
+  `ms_state`): only *credentialed* wrong attempts arm it (a no-credential
+  request — the browser challenge — must never be throttled or login
+  breaks); a correct login clears the IP; stale entries are purged every
+  pass so the map only holds currently-blocked IPs. Don't regress those.
 - **Blueprint factory; integrator registers it.** `make_blueprint(...)`
   returns a fresh `Blueprint` with its config stashed on the object
   (`bp.ms_config`, read via `_cfg()`); the integrator calls

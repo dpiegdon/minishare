@@ -26,6 +26,7 @@ python -m minishare -a alice:s3cret -a bob:hunter2   # require HTTP Basic auth
 python -m minishare -x /files                        # mount under a prefix
 python -m minishare -t "Acme Files"                  # custom brand name
 python -m minishare --max-mb 50 --max-total-mb 2000  # size caps
+python -m minishare -a u:p --auth-rate-limit 5       # 5s per-IP backoff
 ```
 
 `python run.py …` still works as a dev shim. The shared directory is created
@@ -71,7 +72,8 @@ The blueprint is self-contained (no extra templates/static). Give each
 instance a unique `name`; every in-page link / `url_for` is
 blueprint-relative, so any name and `url_prefix` just work. `make_blueprint`
 parameters: `storage_dir` (required), `name`, `auth`, `title`, `max_mb`,
-`max_total_mb`.
+`max_total_mb`, `auth_rate_limit` (per-IP failed-auth backoff in seconds,
+default `2.0`, `0` disables).
 
 ## Authentication (optional)
 
@@ -88,6 +90,15 @@ Equivalent without code: `-a USER:PASS` (repeatable) on the CLI, or the
 `MINISHARE_AUTH="alice:s3cret,bob:hunter2"` env var. Passwords are compared
 in constant time (`hmac.compare_digest`). There are no roles or per-path
 rules — it is plain all-or-nothing access.
+
+**Brute-force backoff:** a wrong-credential attempt arms a per-IP
+cooldown (`auth_rate_limit` seconds, default **2.0**); a further
+credentialed attempt from that IP inside the window gets `429` without a
+password check. Requests with no credentials (the browser challenge
+flow) are never throttled; a correct login clears the IP. Set
+`auth_rate_limit=0` / `--auth-rate-limit 0` / `MINISHARE_AUTH_RATE_LIMIT=0`
+to disable. Uses `request.remote_addr` (apply `ProxyFix` behind a proxy;
+limiter is per worker process).
 
 ```bash
 curl -u alice:s3cret 'http://host:8000/browse/?format=json'
@@ -174,7 +185,8 @@ unaffected. Size caps are enforced on the **actual bytes received**, not
 the `Content-Length` header: `PUT` is streamed to disk with a hard
 ceiling (bounded memory, even uncapped) and atomically renamed; an
 oversize multipart upload is rolled back. So `max_mb`/`max_total_mb`
-hold **without** a proxy.
+hold **without** a proxy. Basic-auth brute force is slowed by a built-in
+per-IP backoff (default 2 s; see Authentication).
 
 Known limitations — handle at the deployment boundary (no proxy = these
 are on you):
@@ -186,7 +198,9 @@ are on you):
 - **No per-user authorization.** Anyone who can reach it (everyone, if no
   `auth` dict) can upload, overwrite and **delete**. Set `auth` and/or
   network-restrict it (bind to localhost / firewall).
-- **No brute-force throttling** on Basic auth — without a rate-limiting
-  proxy, restrict by network or accept the risk.
+- **Brute-force backoff is per-process and per-`remote_addr`.** Good
+  enough for a single dev-server process on a trusted network; for
+  multi-worker or behind-proxy setups apply `ProxyFix` and/or a
+  dedicated rate limiter.
 - Pin `SERVER_NAME` if the reachable `Host` shouldn't appear in `/help`
   URLs (already injection-sanitized; cosmetic/phishing only).

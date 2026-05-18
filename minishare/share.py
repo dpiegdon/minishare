@@ -14,6 +14,8 @@ import os
 import re
 import shutil
 import tempfile
+import threading
+import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -42,6 +44,11 @@ def _cfg() -> dict:
     Flask app without sharing storage / auth / title.
     """
     return current_app.blueprints[request.blueprint].ms_config
+
+
+def _state() -> dict:
+    """Per-instance mutable runtime state (auth-failure rate limiter)."""
+    return current_app.blueprints[request.blueprint].ms_state
 
 
 def _storage_root() -> str:
@@ -485,32 +492,73 @@ def _inline_safe(mime: str | None) -> bool:
 # --------------------------------------------------------------------------- #
 # Authentication
 # --------------------------------------------------------------------------- #
-def _enforce_auth():
-    """If a {username: password} dict is configured, require HTTP Basic auth.
+def _unauthorized():
+    """Generic 401 — no software name / hints in body or realm."""
+    resp = current_app.response_class(
+        "Unauthorized Access\n", status=401, mimetype="text/plain"
+    )
+    resp.headers["WWW-Authenticate"] = 'Basic realm="Restricted"'
+    return resp
 
-    No dict (or empty) == fully open access. Per-instance: each mounted
-    blueprint enforces its own ``auth`` dict.
+
+def _enforce_auth():
+    """Require HTTP Basic auth when a ``{user: password}`` dict is set.
+
+    No dict (or empty) == fully open access (nothing to brute-force, so
+    no rate limiting either). Each mounted blueprint enforces its own
+    ``auth`` independently.
+
+    Brute-force backoff: a *wrong-credential* attempt arms a per-IP
+    cooldown of ``auth_rate_limit`` seconds; another credentialed
+    attempt from that IP inside the window gets ``429`` (no password
+    check, no worker held). Requests without credentials (the normal
+    browser challenge flow) are never throttled. A correct login clears
+    the IP. The map only ever holds IPs that failed within the window —
+    entries older than the interval are dropped on every pass.
     """
-    users = _cfg()["auth"]
+    cfg = _cfg()
+    users = cfg["auth"]
     if not users:
         return None  # open access
 
+    rl = cfg["auth_rate_limit"] or 0
     a = request.authorization
+    ip = request.remote_addr or "?"
+    now = time.monotonic()
+
+    if rl > 0:
+        st = _state()
+        with st["lock"]:
+            fails = st["fails"]
+            for stale in [k for k, t in fails.items() if now - t >= rl]:
+                del fails[stale]
+            ts = fails.get(ip) if a is not None else None
+        if ts is not None and now - ts < rl:
+            resp = current_app.response_class(
+                "Too Many Requests\n", status=429, mimetype="text/plain"
+            )
+            resp.headers["Retry-After"] = str(int(rl - (now - ts)) + 1)
+            return resp
+
     ok = False
     if a is not None and a.password is not None:
         expected = users.get(a.username or "")
         ok = expected is not None and hmac.compare_digest(
             str(expected), a.password
         )
+
     if ok:
+        if rl > 0:
+            st = _state()
+            with st["lock"]:
+                st["fails"].pop(ip, None)  # legit user: forget this IP
         return None
 
-    # Deliberately generic: no software name / hints in body or realm.
-    resp = current_app.response_class(
-        "Unauthorized Access\n", status=401, mimetype="text/plain"
-    )
-    resp.headers["WWW-Authenticate"] = 'Basic realm="Restricted"'
-    return resp
+    if rl > 0 and a is not None:  # an actual wrong-credential guess
+        st = _state()
+        with st["lock"]:
+            st["fails"][ip] = now
+    return _unauthorized()
 
 
 # --------------------------------------------------------------------------- #
@@ -748,6 +796,7 @@ def make_blueprint(
     title: str = "minishare",
     max_mb: int | None = None,
     max_total_mb: int | None = None,
+    auth_rate_limit: float = 2.0,
 ) -> Blueprint:
     """Build a ready-to-register minishare blueprint.
 
@@ -771,6 +820,11 @@ def make_blueprint(
     :param max_total_mb: reject uploads once the storage directory
         reaches this many MB; ``None`` == unlimited. Downloads and
         deletes always work.
+    :param auth_rate_limit: min seconds between *failed* credentialed
+        auth attempts per client IP (brute-force backoff); offenders get
+        ``429``. ``0`` disables. Only relevant when ``auth`` is set.
+        Note: uses ``request.remote_addr`` — behind a proxy apply
+        ``ProxyFix``; the limiter is per worker process.
     """
     storage_dir = os.path.abspath(storage_dir)
     os.makedirs(storage_dir, exist_ok=True)
@@ -782,7 +836,9 @@ def make_blueprint(
         "title": title or "minishare",
         "max_mb": max_mb,
         "max_total_mb": max_total_mb,
+        "auth_rate_limit": auth_rate_limit,
     }
+    bp.ms_state = {"fails": {}, "lock": threading.Lock()}
 
     bp.before_request(_enforce_auth)
     bp.before_request(_csrf_guard)

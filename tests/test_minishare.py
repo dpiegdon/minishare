@@ -314,7 +314,9 @@ def test_open_mode_no_auth(client):
 
 
 def test_auth_enforced(root):
-    c = create_app(storage_dir=str(root), auth={"u": "p"}).test_client()
+    # rate limit off here so rapid wrong attempts isolate auth behaviour
+    c = create_app(storage_dir=str(root), auth={"u": "p"},
+                    auth_rate_limit=0).test_client()
     r = c.get("/help")
     assert r.status_code == 401
     assert r.headers["WWW-Authenticate"].startswith("Basic")
@@ -502,3 +504,44 @@ def test_put_streams_large_body_when_unlimited(tmp_path):
     r = c.put("/put/big.bin", data=b"z" * (5 * 1024 * 1024))
     assert r.status_code == 201 and r.get_json()["size"] == 5 * 1024 * 1024
     assert (tmp_path / "big.bin").stat().st_size == 5 * 1024 * 1024
+
+
+# --------------------------------------------------------------------------- #
+# Brute-force backoff (per-IP auth rate limit)
+# --------------------------------------------------------------------------- #
+def _ip(addr):
+    return {"environ_base": {"REMOTE_ADDR": addr}}
+
+
+def test_auth_backoff_per_ip(tmp_path):
+    import time
+    c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+                    auth_rate_limit=0.3).test_client()
+    a, b = _ip("9.9.9.9"), _ip("8.8.8.8")
+    # no-credential request is the browser-challenge path: never throttled
+    assert c.get("/help", **a).status_code == 401
+    # first wrong credential -> 401 and arms the IP
+    assert c.get("/help", headers=auth_header("u", "x"), **a).status_code == 401
+    # next credentialed attempt within the window -> 429 + Retry-After
+    r = c.get("/help", headers=auth_header("u", "x"), **a)
+    assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1
+    # a no-credential request is still NOT throttled (login flow intact)
+    assert c.get("/help", **a).status_code == 401
+    # a different IP is unaffected
+    assert c.get("/help", headers=auth_header("u", "p"), **b).status_code == 200
+    # after the window the IP is forgotten (map stays small) -> works again
+    time.sleep(0.35)
+    assert c.get("/help", headers=auth_header("u", "p"), **a).status_code == 200
+
+
+def test_auth_backoff_disabled(tmp_path):
+    c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+                    auth_rate_limit=0).test_client()
+    codes = [c.get("/help", headers=auth_header("u", "x")).status_code
+             for _ in range(4)]
+    assert codes == [401, 401, 401, 401]  # never 429 when disabled
+
+
+def test_open_mode_never_rate_limited(tmp_path):
+    c = create_app(storage_dir=str(tmp_path)).test_client()  # no auth
+    assert [c.get("/help").status_code for _ in range(4)] == [200] * 4
