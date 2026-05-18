@@ -472,3 +472,33 @@ def test_csrf_same_origin_guard(client, root):
     # agents/curl (no Origin/Referer) are unaffected
     (root / "w.txt").write_text("s")
     assert client.delete("/delete/w.txt").status_code == 200
+
+
+def test_put_over_cap_is_atomic(tmp_path):
+    c = _app(tmp_path, max_mb=1)
+    r = c.put("/put/big.bin", data=b"x" * (1024 * 1024 + 500))
+    assert r.status_code == 413
+    # no partial file and no leftover temp from the streamed write
+    assert not (tmp_path / "big.bin").exists()
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".ul-")] == []
+
+
+def test_upload_total_cap_enforced_on_actual_bytes(tmp_path):
+    c = _app(tmp_path, max_total_mb=1)
+    # near the 1 MB cap
+    assert c.put("/put/a.bin", data=b"a" * (1024 * 1024 - 200)).status_code == 201
+    # a multipart upload that pushes the store over the cap is rolled back
+    big = b"b" * 4000
+    r = c.post("/upload/", data={"file": [(io.BytesIO(big), "b.bin")]},
+               content_type="multipart/form-data",
+               headers={"Accept": "application/json"})
+    assert r.status_code == 413
+    assert not (tmp_path / "b.bin").exists()          # rolled back
+    assert (tmp_path / "a.bin").exists()              # earlier data intact
+
+
+def test_put_streams_large_body_when_unlimited(tmp_path):
+    c = _app(tmp_path)  # no caps
+    r = c.put("/put/big.bin", data=b"z" * (5 * 1024 * 1024))
+    assert r.status_code == 201 and r.get_json()["size"] == 5 * 1024 * 1024
+    assert (tmp_path / "big.bin").stat().st_size == 5 * 1024 * 1024

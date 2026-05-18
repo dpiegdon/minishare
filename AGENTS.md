@@ -64,10 +64,15 @@ the same time**. Concretely:
   Flask globals (e.g. `MAX_CONTENT_LENGTH`). The `MINISHARE_*` env vars
   and CLI flags are conveniences for `create_app()` / the standalone
   runner only, never required to embed.
-- **Size limits in handlers.** `max_mb` (single upload) and
-  `max_total_mb` (whole store; `None` == unlimited) are enforced in
-  `upload`/`put` via `_check_quota` → 413; downloads, deletes and mkdir
-  always work. Pages show a small `storage:` indicator.
+- **Size limits enforced on real bytes, not Content-Length.** `max_mb`
+  (single upload) and `max_total_mb` (whole store; `None` == unlimited):
+  `_request_ceiling()` + `_early_reject()` give a fast 413 for honest
+  clients; `put` then `_stream_to_file()`s the body with a hard ceiling
+  (chunked → bounded memory even when uncapped, atomic rename); `upload`
+  re-checks actual bytes and rolls the files back. Don't reintroduce
+  `request.get_data()`/Content-Length trust — the guarantee must hold
+  with no proxy. Downloads, deletes and mkdir always work; pages show a
+  small `storage:` indicator.
 - **Progressive enhancement.** JS only *enhances* (disable buttons until
   valid, drag-and-drop). The app must remain usable with JS off; never
   hard-disable a control in markup.

@@ -170,19 +170,23 @@ sandbox` and HTML/SVG can never be served `inline` (forced to
 attachment) so a stored file can't script in this origin; and
 state-changing requests (`POST/PUT/DELETE`) are refused cross-origin
 (`Origin`/`Referer` must match) — curl/agents send neither and are
-unaffected.
+unaffected. Size caps are enforced on the **actual bytes received**, not
+the `Content-Length` header: `PUT` is streamed to disk with a hard
+ceiling (bounded memory, even uncapped) and atomically renamed; an
+oversize multipart upload is rolled back. So `max_mb`/`max_total_mb`
+hold **without** a proxy.
 
-Known limitations — handle at the deployment boundary:
+Known limitations — handle at the deployment boundary (no proxy = these
+are on you):
 
-- **Dev server.** Run behind a real WSGI server + reverse proxy; use TLS
-  whenever `auth` is set (HTTP Basic is cleartext). **Never** `--debug`
-  on an exposed port (Werkzeug debugger ≈ RCE).
+- **Dev server.** Use a production WSGI server for real load. **Never**
+  `--debug` on a reachable port (Werkzeug debugger ≈ RCE).
+- **No TLS.** HTTP Basic is cleartext — without a TLS-terminating proxy,
+  only enable `auth` on a trusted network (or front it with TLS).
 - **No per-user authorization.** Anyone who can reach it (everyone, if no
   `auth` dict) can upload, overwrite and **delete**. Set `auth` and/or
-  network-restrict it.
-- **No brute-force throttling** on Basic auth — rate-limit at the proxy.
-- **Size/total caps are advisory** — enforced from `Content-Length`, so a
-  hostile client can exceed them; set a hard body limit at the proxy for
-  guarantees.
-- Put it behind a fixed `Host`/`SERVER_NAME` so the `Host` header can't
-  steer the URLs shown in `/help`.
+  network-restrict it (bind to localhost / firewall).
+- **No brute-force throttling** on Basic auth — without a rate-limiting
+  proxy, restrict by network or accept the risk.
+- Pin `SERVER_NAME` if the reachable `Host` shouldn't appear in `/help`
+  URLs (already injection-sanitized; cosmetic/phishing only).

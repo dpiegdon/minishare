@@ -13,6 +13,7 @@ import mimetypes
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -69,23 +70,24 @@ def _storage_use() -> str:
     return f"{used_mb:.1f} / {limit} MB"
 
 
-def _check_quota(incoming: int | None) -> None:
-    """Reject (413) an upload that breaks the per-upload or total cap.
+_OVER_MSG = "Upload rejected: exceeds the configured size/storage limit."
 
-    ``incoming`` is the request body size if known (``Content-Length``);
-    when unknown we can still enforce an already-full store.
+
+def _request_ceiling() -> int | None:
+    """Hard byte limit for this request, or None if no caps apply.
+
+    Rejects (413) up front when the store is already full. The returned
+    ceiling is enforced against the *actual* bytes received (not the
+    client's Content-Length), so it holds even without a proxy.
     """
     cfg = _cfg()
-    mx = cfg["max_mb"]
-    if mx is not None and incoming is not None and incoming > mx * 1024 * 1024:
-        abort(413, description=f"Upload exceeds the {mx} MB per-upload limit")
+    caps = []
+    if cfg["max_mb"] is not None:
+        caps.append(cfg["max_mb"] * 1024 * 1024)
     tot = cfg["max_total_mb"]
     if tot is not None:
-        limit_b = tot * 1024 * 1024
-        used = _dir_used_bytes(_storage_root())
-        if used >= limit_b or (
-            incoming is not None and used + incoming > limit_b
-        ):
+        rem = tot * 1024 * 1024 - _dir_used_bytes(_storage_root())
+        if rem <= 0:
             abort(
                 413,
                 description=(
@@ -93,6 +95,43 @@ def _check_quota(incoming: int | None) -> None:
                     f"free space. Downloads and deletes still work."
                 ),
             )
+        caps.append(rem)
+    return min(caps) if caps else None
+
+
+def _early_reject(ceiling: int | None) -> None:
+    """Courtesy 413 for honest clients (before reading the body)."""
+    cl = request.content_length
+    if ceiling is not None and cl is not None and cl > ceiling:
+        abort(413, description=_OVER_MSG)
+
+
+def _stream_to_file(dest_full: str, ceiling: int | None) -> int:
+    """Stream the request body to ``dest_full`` atomically.
+
+    Bounded memory (chunked, never buffers the whole body) and the
+    ``ceiling`` is enforced on bytes actually read, so a lying/omitted
+    Content-Length cannot beat it. Returns the byte count.
+    """
+    d = os.path.dirname(dest_full)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".ul-")
+    total = 0
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while True:
+                chunk = request.stream.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if ceiling is not None and total > ceiling:
+                    abort(413, description=_OVER_MSG)
+                out.write(chunk)
+        os.replace(tmp, dest_full)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return total
 
 
 def _doc_base() -> str:
@@ -545,7 +584,8 @@ def get(subpath: str):
 
 def upload(subpath: str = ""):
     """Multipart upload of one or more files into directory ``subpath``."""
-    _check_quota(request.content_length)
+    ceiling = _request_ceiling()
+    _early_reject(ceiling)
     subpath = subpath.strip("/")
     dest_dir = _resolve(subpath)
     os.makedirs(dest_dir, exist_ok=True)
@@ -556,29 +596,51 @@ def upload(subpath: str = ""):
     if not files or all(f.filename == "" for f in files):
         abort(400, description="No 'file' field in multipart form data")
 
-    saved = []
+    saved, saved_full = [], []
     for f in files:
         name = secure_filename(f.filename)
         if not name:
             continue
-        f.save(os.path.join(dest_dir, name))
+        path = os.path.join(dest_dir, name)
+        f.save(path)
         saved.append((subpath + "/" + name).lstrip("/"))
+        saved_full.append(path)
 
     if not saved:
         abort(400, description="No usable filenames in the upload")
+
+    # Enforce on the *actual* bytes written (a lying Content-Length, or
+    # none at all, cannot beat the quota). Roll back if it does.
+    cfg = _cfg()
+    added = sum(os.path.getsize(p) for p in saved_full)
+    over = cfg["max_mb"] is not None and added > cfg["max_mb"] * 1024 * 1024
+    if not over and cfg["max_total_mb"] is not None:
+        over = _dir_used_bytes(_storage_root()) > cfg[
+            "max_total_mb"
+        ] * 1024 * 1024
+    if over:
+        for p in saved_full:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        abort(413, description=_OVER_MSG)
     return _respond({"saved": saved}, subpath, 201)
 
 
 def put(subpath: str):
-    """Raw-body upload to an exact path; creates parent dirs, overwrites."""
-    _check_quota(request.content_length)
+    """Raw-body upload to an exact path; creates parent dirs, overwrites.
+
+    Streamed to disk with a hard byte ceiling, so it neither buffers the
+    whole body in memory nor lets a lying Content-Length exceed the cap.
+    """
     full = _resolve(subpath.strip("/"))
     if os.path.isdir(full):
         abort(400, description="Target is a directory; include a filename")
-    os.makedirs(os.path.dirname(full), exist_ok=True)
-    with open(full, "wb") as fh:
-        fh.write(request.get_data())
-    return jsonify({"saved": _rel(full), "size": os.path.getsize(full)}), 201
+    ceiling = _request_ceiling()
+    _early_reject(ceiling)
+    size = _stream_to_file(full, ceiling)
+    return jsonify({"saved": _rel(full), "size": size}), 201
 
 
 def mkdir(subpath: str = ""):
