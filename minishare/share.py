@@ -227,7 +227,7 @@ _PAGE = """<!doctype html>
   .ops form{flex:1;margin:0;min-width:15rem}
   button:disabled{opacity:.45;cursor:not-allowed}
   form.drop{outline:2px dashed #06c;outline-offset:-4px}
-  .hint{color:#aaa;font-size:12px;margin-left:.4rem}
+  .hint{color:#000;font-weight:600;margin-left:.4rem}
   td.sel,th.sel{text-align:center;width:5rem}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
