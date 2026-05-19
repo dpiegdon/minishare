@@ -488,6 +488,17 @@ def _csrf_guard():
         val = request.headers.get(header)
         if val:
             if not _same_site(val):
+                current_app.logger.warning(
+                    "CSRF refuse: %s=%r (host=%r) vs request.host_url=%r "
+                    "(host=%r); Host=%r X-Forwarded-Host=%r "
+                    "X-Forwarded-Proto=%r remote=%s",
+                    header, val, urlparse(val).hostname,
+                    request.host_url, urlparse(request.host_url).hostname,
+                    request.headers.get("Host"),
+                    request.headers.get("X-Forwarded-Host"),
+                    request.headers.get("X-Forwarded-Proto"),
+                    request.remote_addr,
+                )
                 abort(403, description="Cross-origin request refused")
             return None
     return None
