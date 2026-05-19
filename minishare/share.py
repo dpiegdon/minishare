@@ -457,11 +457,28 @@ def _security_headers(resp):
     return resp
 
 
+def _same_site(value: str) -> bool:
+    """True if ``value``'s host equals this request's host.
+
+    Compares *hostnames* only — comparing raw ``netloc`` breaks on the
+    default-port asymmetry (browsers send ``Origin: https://h`` with no
+    ``:443`` while ``Host`` may carry a port), which would reject
+    legitimate same-site uploads. Host identity is what matters for
+    "is this a different website".
+    """
+    try:
+        other = urlparse(value).hostname
+        mine = urlparse(request.host_url).hostname
+    except ValueError:
+        return False
+    return other is not None and other == mine
+
+
 def _csrf_guard():
-    """Block cross-origin state-changing browser requests.
+    """Block cross-site state-changing browser requests.
 
     Browsers send ``Origin`` (and usually ``Referer``) on mutating
-    requests; if present it must match this host. curl / agents send
+    requests; if present its host must equal ours. curl / agents send
     neither, so they are unaffected — only a browser tricked by another
     site is rejected (relevant when ``auth`` is enabled).
     """
@@ -470,7 +487,7 @@ def _csrf_guard():
     for header in ("Origin", "Referer"):
         val = request.headers.get(header)
         if val:
-            if urlparse(val).netloc != request.host:
+            if not _same_site(val):
                 abort(403, description="Cross-origin request refused")
             return None
     return None

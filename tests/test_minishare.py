@@ -474,6 +474,13 @@ def test_csrf_same_origin_guard(client, root):
     # agents/curl (no Origin/Referer) are unaffected
     (root / "w.txt").write_text("s")
     assert client.delete("/delete/w.txt").status_code == 200
+    # default-port asymmetry must NOT be treated as cross-site:
+    # browser sends Origin without :443 while Host carries a port
+    (root / "u.txt").write_text("s")
+    r = client.post("/delete", data={"sel": "u.txt"},
+                     headers={"Origin": "https://localhost",
+                              "Host": "localhost:8443"})
+    assert r.status_code == 200 and not (root / "u.txt").exists()
 
 
 def test_put_over_cap_is_atomic(tmp_path):
