@@ -213,6 +213,20 @@ def _client_wants_json() -> bool:
     return "text/html" not in request.headers.get("Accept", "")
 
 
+def _flag(name: str) -> bool:
+    """A truthy opt-in query/form flag, e.g. ``?recursive=1``.
+
+    Accepts ``1`` / ``true`` / ``yes`` (same grammar as ``?inline=``).
+    Used to make destructive ops (recursive delete, overwrite) require
+    *explicit* intent in the request so a frictionless API can't be
+    nudged — by accident or prompt-injection — into silently destroying
+    data. The browser forms pass these themselves (the human already
+    confirmed via dialog / sees the listing), so the gate is
+    agent-facing without changing the human UX.
+    """
+    return request.values.get(name) in ("1", "true", "yes")
+
+
 def _respond(payload: dict, redirect_subpath: str, status: int = 200):
     """Reply to a mutating request.
 
@@ -639,9 +653,12 @@ def browse(subpath: str = ""):
         storage_use=_storage_use(),
         root_url=url_for(".browse"),
         parent_url=url_for(".browse", subpath=parent) if subpath else "",
-        upload_url=url_for(".upload", subpath=subpath),
+        # The browser already confirms intent (the delete dialog names
+        # the items; the listing shows what an upload would replace), so
+        # the forms carry the opt-in flags — the guard is agent-facing.
+        upload_url=url_for(".upload", subpath=subpath, overwrite=1),
         mkdir_url=url_for(".mkdir", subpath=subpath),
-        delete_url=url_for(".delete"),
+        delete_url=url_for(".delete", recursive=1),
         human=_human_size,
         doc=_api_doc(base),
         doc_base=base,
@@ -655,7 +672,7 @@ def get(subpath: str):
     full = _resolve(subpath.strip("/"))
     if not os.path.isfile(full):
         abort(404, description=f"Not a file: {subpath}")
-    want_inline = request.args.get("inline") in ("1", "true", "yes")
+    want_inline = _flag("inline")
     mime, _ = mimetypes.guess_type(full)
     as_attachment = not (want_inline and _inline_safe(mime))
     resp = send_file(full, as_attachment=as_attachment)
@@ -679,18 +696,34 @@ def upload(subpath: str = ""):
     if not files or all(f.filename == "" for f in files):
         abort(400, description="No 'file' field in multipart form data")
 
-    saved, saved_full = [], []
+    # Name everything first so the overwrite check can fail closed
+    # *before* a single byte is written (no half-applied upload).
+    plan = []  # (file, name, full path)
     for f in files:
         name = secure_filename(f.filename)
         if not name:
             continue
-        path = os.path.join(dest_dir, name)
+        plan.append((f, name, os.path.join(dest_dir, name)))
+    if not plan:
+        abort(400, description="No usable filenames in the upload")
+
+    if not _flag("overwrite"):
+        clash = [n for _f, n, p in plan if os.path.exists(p)]
+        if clash:
+            abort(
+                409,
+                description=(
+                    "These would overwrite existing entries: "
+                    f"{', '.join(sorted(clash))}. "
+                    "Re-send with ?overwrite=1 to confirm."
+                ),
+            )
+
+    saved, saved_full = [], []
+    for f, name, path in plan:
         f.save(path)
         saved.append((subpath + "/" + name).lstrip("/"))
         saved_full.append(path)
-
-    if not saved:
-        abort(400, description="No usable filenames in the upload")
 
     # Enforce on the *actual* bytes written (a lying Content-Length, or
     # none at all, cannot beat the quota). Roll back if it does.
@@ -712,14 +745,24 @@ def upload(subpath: str = ""):
 
 
 def put(subpath: str):
-    """Raw-body upload to an exact path; creates parent dirs, overwrites.
+    """Raw-body upload to an exact path; creates parent dirs.
 
-    Streamed to disk with a hard byte ceiling, so it neither buffers the
-    whole body in memory nor lets a lying Content-Length exceed the cap.
+    Overwriting an existing file needs an explicit ``?overwrite=1``
+    (otherwise ``409``). Streamed to disk with a hard byte ceiling, so
+    it neither buffers the whole body in memory nor lets a lying
+    Content-Length exceed the cap.
     """
     full = _resolve(subpath.strip("/"))
     if os.path.isdir(full):
         abort(400, description="Target is a directory; include a filename")
+    if os.path.exists(full) and not _flag("overwrite"):
+        abort(
+            409,
+            description=(
+                f"'{_rel(full)}' already exists - this would overwrite it. "
+                "Re-send with ?overwrite=1 to confirm."
+            ),
+        )
     ceiling = _request_ceiling()
     _early_reject(ceiling)
     size = _stream_to_file(full, ceiling)
@@ -754,7 +797,7 @@ def mkdir(subpath: str = ""):
 
 
 def delete(subpath: str = ""):
-    """Delete file(s)/directory(ies); directories go **recursively**.
+    """Delete file(s)/directory(ies).
 
     Two shapes:
 
@@ -762,8 +805,10 @@ def delete(subpath: str = ""):
     * bulk, for the browser: ``POST /delete`` with one repeated ``sel``
       form field per checked item.
 
-    Refuses to delete the share root. Single-delete returns
-    ``{"deleted": "<path>"}``; bulk returns ``{"deleted": [...]}``.
+    A file or *empty* directory deletes directly; a **non-empty**
+    directory needs an explicit ``?recursive=1`` (otherwise ``409`` —
+    nothing is deleted). Refuses to delete the share root. Single-delete
+    returns ``{"deleted": "<path>"}``; bulk returns ``{"deleted": [...]}``.
     """
     subpath = subpath.strip("/")
     single = bool(subpath)
@@ -782,13 +827,28 @@ def delete(subpath: str = ""):
         )
 
     # Resolve and existence-check everything first, so a bad entry does
-    # not leave a half-applied bulk delete.
-    fulls = []
+    # not leave a half-applied bulk delete. In the same pass, refuse to
+    # recursively nuke a non-empty directory unless ?recursive=1 was
+    # given (a file or empty dir loses nothing, so it stays flagless).
+    recursive = _flag("recursive")
+    fulls, needs_recursive = [], []
     for rel in targets:
         full = _resolve(rel)
         if not os.path.exists(full):
             abort(404, description=f"No such path: {rel}")
+        if os.path.isdir(full) and os.listdir(full) and not recursive:
+            needs_recursive.append(rel)
         fulls.append(full)
+    if needs_recursive:
+        abort(
+            409,
+            description=(
+                "Refusing to recursively delete non-empty "
+                f"{'directory' if len(needs_recursive) == 1 else 'directories'}"
+                f": {', '.join(needs_recursive)}. Re-send with ?recursive=1 "
+                "to confirm (this deletes everything inside, irreversibly)."
+            ),
+        )
 
     for full in fulls:
         if os.path.isdir(full):
@@ -880,7 +940,7 @@ def make_blueprint(
     bp.before_request(_enforce_auth)
     bp.before_request(_csrf_guard)
     bp.after_request(_security_headers)
-    for code in (400, 403, 404, 413):
+    for code in (400, 403, 404, 409, 413):
         bp.register_error_handler(code, _errors)
 
     bp.add_url_rule("/", "browse", browse)

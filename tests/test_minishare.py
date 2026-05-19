@@ -216,7 +216,12 @@ def test_put_creates_parents_and_overwrites(client, root):
     r = client.put("/put/x/y.txt", data=b"hello")
     assert r.status_code == 201
     assert r.get_json() == {"saved": "x/y.txt", "size": 5}
-    client.put("/put/x/y.txt", data=b"hi")
+    # overwriting an existing file now needs an explicit opt-in
+    blocked = client.put("/put/x/y.txt", data=b"hi")
+    assert blocked.status_code == 409
+    assert (root / "x" / "y.txt").read_bytes() == b"hello"   # untouched
+    ok = client.put("/put/x/y.txt?overwrite=1", data=b"hi")
+    assert ok.status_code == 201
     assert (root / "x" / "y.txt").read_bytes() == b"hi"
 
 
@@ -273,7 +278,7 @@ def test_delete_bulk_list_and_recursive(client, root):
     (root / "tree").mkdir()
     (root / "tree" / "inner.txt").write_text("i")
     r = client.post(
-        "/delete", data={"sel": ["a.txt", "tree"]},
+        "/delete?recursive=1", data={"sel": ["a.txt", "tree"]},
         headers={"Accept": "application/json"},
     )
     assert r.status_code == 200
@@ -298,6 +303,74 @@ def test_delete_browser_redirects(client, root):
     (root / "f.txt").write_text("x")
     r = client.post("/delete/f.txt", headers={"Accept": "text/html"})
     assert r.status_code in (301, 302)
+
+
+# --------------------------------------------------------------------------- #
+# Destructive-op guards: explicit opt-in for recursive delete / overwrite
+# --------------------------------------------------------------------------- #
+def test_delete_recursive_guard_single(client, root):
+    (root / "file.txt").write_text("x")
+    (root / "empty").mkdir()
+    (root / "full").mkdir()
+    (root / "full" / "inner.txt").write_text("i")
+
+    # a plain file and an empty dir lose nothing -> no flag needed
+    assert client.delete("/delete/file.txt").status_code == 200
+    assert client.delete("/delete/empty").status_code == 200
+
+    # a non-empty dir without the flag: refused, and NOTHING removed
+    r = client.delete("/delete/full")
+    assert r.status_code == 409
+    assert "?recursive=1" in r.get_data(as_text=True)
+    assert (root / "full" / "inner.txt").exists()
+
+    # explicit opt-in deletes the whole tree
+    assert client.delete("/delete/full?recursive=1").status_code == 200
+    assert not (root / "full").exists()
+
+
+def test_delete_recursive_guard_bulk_is_atomic(client, root):
+    (root / "keep.txt").write_text("k")
+    (root / "tree").mkdir()
+    (root / "tree" / "x.txt").write_text("x")
+    # one non-empty dir in the selection blocks the whole bulk op
+    r = client.post("/delete", data={"sel": ["keep.txt", "tree"]})
+    assert r.status_code == 409
+    assert (root / "keep.txt").exists() and (root / "tree" / "x.txt").exists()
+    # with the opt-in, the bulk delete goes through
+    r = client.post("/delete?recursive=1", data={"sel": ["keep.txt", "tree"]})
+    assert r.status_code == 200
+    assert not (root / "keep.txt").exists() and not (root / "tree").exists()
+
+
+def test_upload_overwrite_guard(client, root):
+    assert upload(client, [("a.txt", b"orig")]).status_code == 201
+    # same name, no flag: refused and the original is untouched (no partial)
+    r = upload(client, [("a.txt", b"NEW")])
+    assert r.status_code == 409
+    assert "?overwrite=1" in r.get_data(as_text=True)
+    assert (root / "a.txt").read_bytes() == b"orig"
+    # a fresh name in the same batch is fine without the flag
+    assert upload(client, [("b.txt", b"B")]).status_code == 201
+    # explicit opt-in replaces it
+    assert upload(client, [("a.txt", b"NEW")],
+                  "/upload/?overwrite=1").status_code == 201
+    assert (root / "a.txt").read_bytes() == b"NEW"
+
+
+def test_browser_forms_carry_destructive_flags(client, root):
+    (root / "tree").mkdir()
+    (root / "tree" / "i.txt").write_text("i")
+    html = client.get("/").get_data(as_text=True)
+    # the forms opt in for the human (who already confirmed via the
+    # dialog / sees the listing) so the guard stays agent-facing
+    assert 'action="/delete?recursive=1"' in html
+    assert 'action="/upload/?overwrite=1"' in html
+    # and that browser path still deletes a non-empty dir (UX unchanged)
+    r = client.post("/delete?recursive=1", data={"sel": "tree"},
+                     headers={"Accept": "text/html"})
+    assert r.status_code in (301, 302)
+    assert not (root / "tree").exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -382,7 +455,8 @@ def test_api_md_is_the_single_doc_source(client):
         ln.lstrip().startswith("```") for ln in helptxt.splitlines()
     )
     # Editing API.md changes the server output (single source, no fork).
-    assert "RECURSIVE" in src and "RECURSIVE" in helptxt
+    for token in ("?recursive=1", "?overwrite=1"):
+        assert token in src and token in helptxt
 
 
 def test_host_header_cannot_inject(client):

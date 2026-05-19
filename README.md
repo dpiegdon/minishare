@@ -83,6 +83,11 @@ HTML/SVG is always sent as an attachment; `POST/PUT/DELETE` are refused
 cross-origin (curl/agents send no `Origin`/`Referer` and are unaffected).
 Size caps are enforced on bytes actually received (streamed `PUT`,
 rolled-back oversize multipart), so they hold without a proxy.
+Destructive ops fail closed: recursively deleting a non-empty directory
+needs `?recursive=1` and overwriting an existing file (PUT or multipart
+upload) needs `?overwrite=1`, else `409` — so a stray or
+injection-nudged agent request can't silently nuke a tree or clobber a
+file (the browser forms pass these flags, so the human UX is unchanged).
 
 Deployment is on you (no proxy assumed): use a production WSGI server,
 never `--debug` on a reachable port, terminate TLS before HTTP Basic, and

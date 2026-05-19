@@ -67,8 +67,14 @@ the same time**. Concretely:
   for `auth_rate_limit` s with a `429` advising `+5` s; a no-credential
   request (the browser challenge) must never be counted or throttled or
   login breaks; a correct login clears the IP; entries idle past the
-  advised wait are purged every pass so the map stays small. Don't
-  regress those.
+  advised wait are purged every pass so the map stays small.
+  Destructive ops fail closed via `_flag()`: a non-empty-directory
+  `DELETE` needs `?recursive=1` and clobbering a file (PUT *or*
+  multipart upload) needs `?overwrite=1`, else `409` and nothing is
+  written/removed (bulk delete stays all-or-nothing) — a deliberate
+  prompt-injection / fat-finger speed bump. The browser forms supply
+  these flags themselves, so it's agent-facing only. Don't regress
+  those.
 - **Blueprint factory; integrator registers it.** `make_blueprint(...)`
   returns a fresh `Blueprint` with its config stashed on the object
   (`bp.ms_config`, read via `_cfg()`); the integrator calls
@@ -95,9 +101,15 @@ the same time**. Concretely:
 - **Progressive enhancement.** JS only *enhances* (disable buttons until
   valid, drag-and-drop). The app must remain usable with JS off; never
   hard-disable a control in markup.
-- **Stable contracts.** `DELETE /delete/<path>` → `{"deleted":"<path>"}`
-  (string); bulk `POST /delete` with `sel=` → `{"deleted":[...]}`
-  (list). Agents get JSON, browsers redirect. Don't break these.
+- **Stable contracts (+ destructive-op guard).** `DELETE
+  /delete/<path>` → `{"deleted":"<path>"}` (string); bulk `POST /delete`
+  with `sel=` → `{"deleted":[...]}` (list). Agents get JSON, browsers
+  redirect. Destructive intent must be explicit: a non-empty-dir delete
+  needs `?recursive=1`, overwriting an existing file (PUT/upload) needs
+  `?overwrite=1`; otherwise `409` (parsed by `_flag()`, handler
+  registered for `409`). This was a *deliberate* break of the older
+  "delete is always recursive / PUT always overwrites" behaviour — keep
+  it; the safety > the smoothness here. Don't break any of this.
 
 ## Dev criteria (definition of done)
 
