@@ -458,7 +458,19 @@ def test_security_headers_on_pages(client):
     h = client.get("/").headers
     assert h["X-Frame-Options"] == "DENY"
     assert h["X-Content-Type-Options"] == "nosniff"
-    assert h["Referrer-Policy"] == "no-referrer"
+    # MUST stay same-origin: no-referrer makes browsers send
+    # `Origin: null` on same-site POSTs, which breaks uploads.
+    assert h["Referrer-Policy"] == "same-origin"
+
+
+def test_origin_null_is_blocked_as_cross_site(client, root):
+    # An attacker can force `Origin: null` (sandboxed iframe /
+    # referrerpolicy=no-referrer), so it must NOT be trusted. Legit
+    # same-site posts no longer produce it (Referrer-Policy=same-origin).
+    (root / "v.txt").write_text("s")
+    r = client.post("/delete", data={"sel": "v.txt"},
+                     headers={"Origin": "null"})
+    assert r.status_code == 403 and (root / "v.txt").exists()
 
 
 def test_csrf_same_origin_guard(client, root):

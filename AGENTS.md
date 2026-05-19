@@ -46,9 +46,13 @@ the same time**. Concretely:
   test): `/get` never serves HTML/SVG `inline` (`_inline_safe`
   allowlist) and carries `Content-Security-Policy: sandbox` + `nosniff`;
   every response gets `X-Frame-Options: DENY` / `nosniff` /
-  `Referrer-Policy` via `_security_headers`; mutating requests pass
-  `_csrf_guard` (same-origin `Origin`/`Referer`, but curl/agents with
-  neither are allowed — keep that, it's the dual-audience contract);
+  `Referrer-Policy: same-origin` via `_security_headers` (must NOT be
+  `no-referrer` — that makes browsers send `Origin: null` on same-site
+  POSTs and `_csrf_guard` rejects it, breaking uploads); mutating
+  requests pass `_csrf_guard` (host of `Origin`/`Referer` must equal
+  ours; a literal `Origin: null` is treated as cross-site and blocked;
+  curl/agents send neither and are allowed — the dual-audience
+  contract);
   the 401 stays generic (no software name in body or realm). Auth has a
   per-IP brute-force backoff (`auth_rate_limit`, default 2 s, per-blueprint
   `ms_state`): only *credentialed* wrong attempts arm it (a no-credential

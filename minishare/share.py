@@ -450,10 +450,17 @@ _PAGE = """<!doctype html>
 # Security: headers, CSRF, safe inline types
 # --------------------------------------------------------------------------- #
 def _security_headers(resp):
-    """Defence-in-depth headers on every response."""
+    """Defence-in-depth headers on every response.
+
+    ``Referrer-Policy`` is ``same-origin``, not ``no-referrer``: per the
+    Fetch standard ``no-referrer`` makes the browser send ``Origin:
+    null`` on same-site form POSTs, which ``_csrf_guard`` (correctly)
+    rejects — it broke uploads. ``same-origin`` still sends nothing
+    cross-site but keeps a real ``Origin``/``Referer`` same-site.
+    """
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
-    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
     return resp
 
 

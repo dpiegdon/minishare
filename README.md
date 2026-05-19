@@ -176,7 +176,7 @@ Built-in protections: path traversal is blocked (`safe_join` + realpath
 containment, incl. symlink escape); passwords use constant-time compare;
 the 401 is generic (no software fingerprint); responses carry
 `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer`; downloads get `Content-Security-Policy:
+`Referrer-Policy: same-origin`; downloads get `Content-Security-Policy:
 sandbox` and HTML/SVG can never be served `inline` (forced to
 attachment) so a stored file can't script in this origin; and
 state-changing requests (`POST/PUT/DELETE`) are refused cross-origin
