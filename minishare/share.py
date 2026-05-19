@@ -359,7 +359,7 @@ _PAGE = """<!doctype html>
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
   .tip{font-size:12px;margin:.4rem 0 .25rem;color:#444}
-  .agentbox{width:100%;box-sizing:border-box;font:12px/1.4 ui-monospace,monospace;color:#333;background:#f6f8fa;border:1px solid #ddd;border-radius:4px;padding:.5rem;resize:vertical}
+  .agentbox{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace;color:#333;background:#f6f8fa;border:1px solid #ddd;border-radius:4px;padding:.5rem;margin:.4rem 0 0}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
   .crumb{color:#666}
   .su{color:#888;font-size:12px;margin:-.4rem 0 .8rem}
@@ -367,8 +367,7 @@ _PAGE = """<!doctype html>
 <details>
   <summary>CLI / API usage (for agents &amp; scripts)</summary>
   <p class="tip">{{ agent_lead }}</p>
-  <textarea class="agentbox" rows="{{ agent_rows }}" readonly
-            onclick="this.select()">{{ agent_brief|safe }}</textarea>
+  <pre class="agentbox">{{ agent_brief|safe }}</pre>
   <pre>{{ doc|safe }}</pre>
 </details>
 <h1>📂 <a href="{{ root_url }}" title="go to share root">{{ title }}</a>
@@ -704,7 +703,6 @@ def browse(subpath: str = ""):
         doc=_api_doc(base),
         agent_lead=agent_lead,
         agent_brief=agent_brief,
-        agent_rows=agent_brief.count("\n") + 1,
     )
 
 

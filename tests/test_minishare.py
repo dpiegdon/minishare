@@ -153,15 +153,15 @@ def test_browse_html_has_brand_and_details_on_top(client):
 
 
 def _agentbox(html):
-    """The copy-paste textarea's inner text."""
-    after = html.split('<textarea class="agentbox"', 1)[1]
-    return after.split(">", 1)[1].split("</textarea>", 1)[0]
+    """The copy box's inner text (a plain, selectable <pre>)."""
+    return html.split('<pre class="agentbox">', 1)[1].split("</pre>", 1)[0]
 
 
 def test_fold_agent_brief_open(client):
     html = client.get("/").get_data(as_text=True)
     assert "Copy this to your agent:" in html        # open: no creds clause
-    assert '<textarea class="agentbox"' in html and "readonly" in html
+    assert '<pre class="agentbox">' in html           # plain selectable text
+    assert "this.select()" not in html                # no forced auto-select
     box = _agentbox(html)
     # only what the server is + how to fetch the reference
     assert "curl -sS http://localhost/help" in box
@@ -176,7 +176,7 @@ def test_fold_agent_brief_open(client):
     assert (
         html.index("<details>")
         < html.index("Copy this to your agent")
-        < html.index('<textarea class="agentbox"')
+        < html.index('<pre class="agentbox">')
         < html.index("<pre>")
     )
 
