@@ -513,6 +513,13 @@ def _unauthorized():
     return resp
 
 
+# Grace before the heavy per-IP auth block kicks in. A browser fires
+# several requests per login (the challenge, parallel page assets,
+# password-manager retries), so a 1-strike limiter throttles honest
+# users. We only clamp down once an IP is *clearly* guessing.
+_AUTH_FAIL_GRACE = 4
+
+
 def _enforce_auth():
     """Require HTTP Basic auth when a ``{user: password}`` dict is set.
 
@@ -520,36 +527,50 @@ def _enforce_auth():
     no rate limiting either). Each mounted blueprint enforces its own
     ``auth`` independently.
 
-    Brute-force backoff: a *wrong-credential* attempt arms a per-IP
-    cooldown of ``auth_rate_limit`` seconds; another credentialed
-    attempt from that IP inside the window gets ``429`` (no password
-    check, no worker held). Requests without credentials (the normal
-    browser challenge flow) are never throttled. A correct login clears
-    the IP. The map only ever holds IPs that failed within the window —
-    entries older than the interval are dropped on every pass.
+    Brute-force backoff (per IP, per worker): every wrong-credential
+    attempt bumps a counter. The first ``_AUTH_FAIL_GRACE`` (4) failures
+    are a grace zone — browsers legitimately retry — so they just get
+    the normal ``401``. Once the counter passes 4 the IP is blocked
+    *hard* for ``auth_rate_limit`` seconds: further credentialed
+    attempts get a ``429`` (no password check, no worker held) advising
+    a wait of ``auth_rate_limit + 5`` s. A correct login clears the IP;
+    requests with no credentials (the browser challenge flow) are never
+    counted or throttled. Entries idle past that advised wait are
+    dropped every pass, so the map only holds currently-relevant IPs
+    (and a long-gone client gets a fresh grace).
     """
     cfg = _cfg()
     users = cfg["auth"]
     if not users:
         return None  # open access
 
-    rl = cfg["auth_rate_limit"] or 0
+    block = cfg["auth_rate_limit"] or 0
     a = request.authorization
     ip = request.remote_addr or "?"
     now = time.monotonic()
 
-    if rl > 0:
+    if block > 0:
+        advised = int(block) + 5          # what we tell the client to wait
         st = _state()
         with st["lock"]:
             fails = st["fails"]
-            for stale in [k for k, t in fails.items() if now - t >= rl]:
-                del fails[stale]
-            ts = fails.get(ip) if a is not None else None
-        if ts is not None and now - ts < rl:
+            for k in [
+                k for k, (_c, t) in fails.items() if now - t >= advised
+            ]:
+                del fails[k]
+            rec = fails.get(ip) if a is not None else None
+        if (
+            rec is not None
+            and rec[0] > _AUTH_FAIL_GRACE
+            and now - rec[1] < block
+        ):
             resp = current_app.response_class(
-                "Too Many Requests\n", status=429, mimetype="text/plain"
+                "Too Many Requests\n\nToo many failed logins from your "
+                f"address. Wait at least {advised} seconds, then retry.\n",
+                status=429,
+                mimetype="text/plain",
             )
-            resp.headers["Retry-After"] = str(int(rl - (now - ts)) + 1)
+            resp.headers["Retry-After"] = str(advised)
             return resp
 
     ok = False
@@ -560,16 +581,17 @@ def _enforce_auth():
         )
 
     if ok:
-        if rl > 0:
+        if block > 0:
             st = _state()
             with st["lock"]:
                 st["fails"].pop(ip, None)  # legit user: forget this IP
         return None
 
-    if rl > 0 and a is not None:  # an actual wrong-credential guess
+    if block > 0 and a is not None:  # an actual wrong-credential guess
         st = _state()
         with st["lock"]:
-            st["fails"][ip] = now
+            count = st["fails"].get(ip, (0, now))[0]
+            st["fails"][ip] = (count + 1, now)
     return _unauthorized()
 
 
@@ -809,7 +831,7 @@ def make_blueprint(
     title: str = "minishare",
     max_mb: int | None = None,
     max_total_mb: int | None = None,
-    auth_rate_limit: float = 2.0,
+    auth_rate_limit: float = 10.0,
 ) -> Blueprint:
     """Build a ready-to-register minishare blueprint.
 
@@ -833,11 +855,13 @@ def make_blueprint(
     :param max_total_mb: reject uploads once the storage directory
         reaches this many MB; ``None`` == unlimited. Downloads and
         deletes always work.
-    :param auth_rate_limit: min seconds between *failed* credentialed
-        auth attempts per client IP (brute-force backoff); offenders get
-        ``429``. ``0`` disables. Only relevant when ``auth`` is set.
-        Note: uses ``request.remote_addr`` — behind a proxy apply
-        ``ProxyFix``; the limiter is per worker process.
+    :param auth_rate_limit: brute-force backoff. The first 4 failed
+        credentialed attempts from an IP are a grace zone (browsers
+        retry); after that the IP is blocked hard for this many seconds
+        (default ``10``) with a ``429`` advising a wait of this + 5 s.
+        ``0`` disables. Only relevant when ``auth`` is set. Uses
+        ``request.remote_addr`` — behind a proxy apply ``ProxyFix``; the
+        limiter is per worker process.
     """
     storage_dir = os.path.abspath(storage_dir)
     os.makedirs(storage_dir, exist_ok=True)

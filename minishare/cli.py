@@ -45,8 +45,8 @@ def main(argv: list[str] | None = None) -> None:
         "--auth-rate-limit",
         type=float,
         metavar="SECONDS",
-        help="min seconds between failed auth attempts per IP "
-        "(default 2.0; 0 disables; only with --auth)",
+        help="after 4 failed logins, block that IP for N seconds "
+        "(default 10.0; 0 disables; only with --auth)",
     )
     p.add_argument("--debug", action="store_true", help="enable Flask debug")
     args = p.parse_args(argv)

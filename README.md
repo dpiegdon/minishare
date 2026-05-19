@@ -48,19 +48,22 @@ app.register_blueprint(
 ```
 
 `make_blueprint` parameters: `storage_dir` (required), `name`, `auth`,
-`title`, `max_mb`, `max_total_mb`, `auth_rate_limit` (per-IP failed-auth
-backoff in seconds, default `2.0`, `0` disables). Give each instance a
-unique `name`; in-page links are blueprint-relative, so any name and
-`url_prefix` just work.
+`title`, `max_mb`, `max_total_mb`, `auth_rate_limit` (per-IP brute-force
+backoff: hard block in seconds after 4 failed logins, default `10`, `0`
+disables). Give each instance a unique `name`; in-page links are
+blueprint-relative, so any name and `url_prefix` just work.
 
 ## Authentication (optional)
 
 Pass a `{username: password}` dict. If non-empty, **every** request needs
 HTTP Basic auth with one of those pairs; otherwise access is fully open.
 Passwords are compared in constant time; there are no roles — plain
-all-or-nothing access. A wrong-credential attempt arms a per-IP backoff
-(`auth_rate_limit` s); a further credentialed attempt inside the window
-gets `429`. No-credential challenge requests are never throttled.
+all-or-nothing access. The first 4 wrong-credential attempts from an IP
+just get `401` (browsers retry on a normal login); past that the IP is
+blocked hard for `auth_rate_limit` seconds (default `10`) — further
+credentialed attempts get a `429` advising a ~15 s wait, with no
+password check. A correct login clears the IP; no-credential challenge
+requests are never counted or throttled.
 
 ## API
 

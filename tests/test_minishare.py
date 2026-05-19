@@ -569,33 +569,65 @@ def _ip(addr):
     return {"environ_base": {"REMOTE_ADDR": addr}}
 
 
-def test_auth_backoff_per_ip(tmp_path):
-    import time
+def _fake_clock(monkeypatch):
+    """Deterministic, advanceable replacement for time.monotonic()."""
+    import minishare.share as share
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(share.time, "monotonic", lambda: clock["t"])
+    return clock
+
+
+def test_auth_backoff_grace_then_hard_block(tmp_path, monkeypatch):
+    clock = _fake_clock(monkeypatch)
     c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
-                    auth_rate_limit=0.3).test_client()
+                    auth_rate_limit=10).test_client()
     a, b = _ip("9.9.9.9"), _ip("8.8.8.8")
     # no-credential request is the browser-challenge path: never throttled
     assert c.get("/help", **a).status_code == 401
-    # first wrong credential -> 401 and arms the IP
-    assert c.get("/help", headers=auth_header("u", "x"), **a).status_code == 401
-    # next credentialed attempt within the window -> 429 + Retry-After
+    # first 4 wrong attempts are the grace zone (browsers retry) -> 401
+    for _ in range(5):  # counter 0..4: still in grace, plain 401
+        assert c.get("/help", headers=auth_header("u", "x"),
+                     **a).status_code == 401
+    # counter is now > 4: the IP is blocked hard
     r = c.get("/help", headers=auth_header("u", "x"), **a)
-    assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1
+    assert r.status_code == 429
+    assert int(r.headers["Retry-After"]) == 15        # block 10 + 5 margin
+    assert "at least 15 seconds" in r.get_data(as_text=True)
+    # blocked even with the *correct* password (no password check while blocked)
+    assert c.get("/help", headers=auth_header("u", "p"), **a).status_code == 429
     # a no-credential request is still NOT throttled (login flow intact)
     assert c.get("/help", **a).status_code == 401
     # a different IP is unaffected
     assert c.get("/help", headers=auth_header("u", "p"), **b).status_code == 200
-    # after the window the IP is forgotten (map stays small) -> works again
-    time.sleep(0.35)
+    # block lifts after auth_rate_limit s; a correct login then clears the IP
+    clock["t"] += 10.1
     assert c.get("/help", headers=auth_header("u", "p"), **a).status_code == 200
+    # ... and the grace is fresh again (entry was cleared on success)
+    for _ in range(5):
+        assert c.get("/help", headers=auth_header("u", "x"),
+                     **a).status_code == 401
+
+
+def test_auth_backoff_purges_idle_ips(tmp_path, monkeypatch):
+    clock = _fake_clock(monkeypatch)
+    app = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+                      auth_rate_limit=10)
+    c = app.test_client()
+    fails = app.blueprints["minishare"].ms_state["fails"]
+    for _ in range(3):
+        c.get("/help", headers=auth_header("u", "x"), **_ip("7.7.7.7"))
+    assert "7.7.7.7" in fails                          # tracked
+    clock["t"] += 16                                   # idle past advised wait
+    c.get("/help", **_ip("1.2.3.4"))                   # any request purges
+    assert fails == {}                                 # idle IP forgotten
 
 
 def test_auth_backoff_disabled(tmp_path):
     c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
                     auth_rate_limit=0).test_client()
     codes = [c.get("/help", headers=auth_header("u", "x")).status_code
-             for _ in range(4)]
-    assert codes == [401, 401, 401, 401]  # never 429 when disabled
+             for _ in range(8)]
+    assert codes == [401] * 8  # never 429 when disabled, regardless of count
 
 
 def test_open_mode_never_rate_limited(tmp_path):

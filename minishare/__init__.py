@@ -90,7 +90,7 @@ def create_app(
     if max_total_mb is None:
         max_total_mb = _env_int("MINISHARE_MAX_TOTAL_MB")
     if auth_rate_limit is None:
-        auth_rate_limit = _env_float("MINISHARE_AUTH_RATE_LIMIT", 2.0)
+        auth_rate_limit = _env_float("MINISHARE_AUTH_RATE_LIMIT", 10.0)
 
     app = Flask(__name__)
     app.register_blueprint(

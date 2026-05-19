@@ -60,11 +60,15 @@ the same time**. Concretely:
   curl/agents send neither and are allowed — the dual-audience
   contract);
   the 401 stays generic (no software name in body or realm). Auth has a
-  per-IP brute-force backoff (`auth_rate_limit`, default 2 s, per-blueprint
-  `ms_state`): only *credentialed* wrong attempts arm it (a no-credential
-  request — the browser challenge — must never be throttled or login
-  breaks); a correct login clears the IP; stale entries are purged every
-  pass so the map only holds currently-blocked IPs. Don't regress those.
+  per-IP brute-force backoff (`auth_rate_limit`, default 10 s, per-blueprint
+  `ms_state` as `{ip: (count, ts)}`): the first `_AUTH_FAIL_GRACE` (4)
+  *credentialed* wrong attempts are a grace zone (browsers retry — a
+  1-strike limiter throttles honest logins), then the IP is blocked hard
+  for `auth_rate_limit` s with a `429` advising `+5` s; a no-credential
+  request (the browser challenge) must never be counted or throttled or
+  login breaks; a correct login clears the IP; entries idle past the
+  advised wait are purged every pass so the map stays small. Don't
+  regress those.
 - **Blueprint factory; integrator registers it.** `make_blueprint(...)`
   returns a fresh `Blueprint` with its config stashed on the object
   (`bp.ms_config`, read via `_cfg()`); the integrator calls
