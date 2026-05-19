@@ -68,7 +68,13 @@ the same time**. Concretely:
   ours; a literal `Origin: null` is treated as cross-site and blocked;
   curl/agents send neither and are allowed — the dual-audience
   contract);
-  the 401 stays generic (no software name in body or realm). The auth
+  the 401 stays generic (no software name in body or realm). `auth`
+  values are **Werkzeug password hashes only** — plaintext is rejected
+  in `make_blueprint` with a `ValueError` (fail fast, not a silent
+  lockout); verified per request via `check_password_hash`
+  (`_password_ok`). `python -m minishare.hashpw` (`minishare/hashpw.py`)
+  generates one via `getpass` (no echo / argv / shell history) — keep
+  these properties. The auth
   docs in `API.md` must never show credentials on the curl command line
   (`-u USER:PASS` / building the file with `echo` leaks them to `ps` and
   shell history) — they teach the single `-K ms.curl` config-file

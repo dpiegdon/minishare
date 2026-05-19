@@ -55,15 +55,18 @@ blueprint-relative, so any name and `url_prefix` just work.
 
 ## Authentication (optional)
 
-Pass a `{username: secret}` dict. If non-empty, **every** request needs
+Pass a `{username: hash}` dict. If non-empty, **every** request needs
 HTTP Basic auth with one of those pairs; otherwise access is fully open.
-Each `secret` is either a plaintext password (constant-time compared) or
-a Werkzeug password hash so you don't store secrets in clear:
+Each value must be a **Werkzeug password hash** — plaintext is rejected
+(`make_blueprint` raises `ValueError`), so the password is never stored
+in clear. Generate one (no echo; never on argv or in shell history):
 
 ```bash
-python -c "from werkzeug.security import generate_password_hash as g; print(g('s3cret'))"
-# -> scrypt:32768:8:1$....$....   (use this string as the dict value,
-#    or  -a alice:'scrypt:...'  / MINISHARE_AUTH — split on the 1st ':')
+python -m minishare.hashpw
+# Password: ····
+# -> scrypt:32768:8:1$....$....
+# use that string as the dict value, or after the ':' in
+# -a alice:'scrypt:...' / MINISHARE_AUTH (split on the 1st ':')
 ```
 
 Hashes are verified with `check_password_hash` (the KDF runs per
@@ -117,5 +120,6 @@ pytest
 ```
 
 `minishare/__init__.py` (public API), `minishare/share.py`
-(`make_blueprint` + all routes), `minishare/cli.py` (runner), `tests/`.
+(`make_blueprint` + all routes), `minishare/cli.py` (runner),
+`minishare/hashpw.py` (`python -m minishare.hashpw`), `tests/`.
 See `AGENTS.md` for the project working agreement — read it first.

@@ -17,6 +17,13 @@ import minishare
 
 from minishare import _parse_auth_env, create_app, make_blueprint
 from flask import Flask
+from werkzeug.security import generate_password_hash
+
+
+def H(secret="p"):
+    """A valid Werkzeug hash for tests, with a deliberately cheap KDF
+    (auth runs the KDF on every request — keep the suite fast)."""
+    return generate_password_hash(secret, method="pbkdf2:sha256:1")
 
 
 # --------------------------------------------------------------------------- #
@@ -86,7 +93,7 @@ def test_make_blueprint_multi_instance_isolated(tmp_path):
     )
     app.register_blueprint(
         make_blueprint(name="b", storage_dir=str(b), title="BBB",
-                       auth={"u": "p"}),
+                       auth={"u": H()}),
         url_prefix="/b",
     )
     c = app.test_client()
@@ -182,7 +189,7 @@ def test_fold_agent_brief_open(client):
 
 
 def test_fold_agent_brief_auth_variant(root):
-    c = create_app(storage_dir=str(root), auth={"u": "p"},
+    c = create_app(storage_dir=str(root), auth={"u": H()},
                     auth_rate_limit=0).test_client()
     html = c.get("/", headers=auth_header("u", "p")).get_data(as_text=True)
     assert "Copy this to your agent, then tell it the username and password:" \
@@ -443,7 +450,7 @@ def test_open_mode_no_auth(client):
 
 def test_auth_enforced(root):
     # rate limit off here so rapid wrong attempts isolate auth behaviour
-    c = create_app(storage_dir=str(root), auth={"u": "p"},
+    c = create_app(storage_dir=str(root), auth={"u": H()},
                     auth_rate_limit=0).test_client()
     r = c.get("/help")
     assert r.status_code == 401
@@ -456,38 +463,59 @@ def test_auth_enforced(root):
     assert c.get("/help", headers=auth_header("u", "p")).status_code == 200
 
 
-def test_auth_accepts_password_hash(root):
-    from werkzeug.security import generate_password_hash
+def test_auth_verifies_hash_only(root):
     c = create_app(
         storage_dir=str(root),
-        auth={"hashed": generate_password_hash("s3cret"),  # scrypt/pbkdf2
-              "plain": "p"},                                # still works
+        auth={"u": generate_password_hash("s3cret")},  # only a hash is OK
         auth_rate_limit=0,
     ).test_client()
-    # hashed user: only the right password verifies; the stored hash
-    # string itself must NOT be accepted as the password
-    assert c.get("/help", headers=auth_header("hashed", "s3cret")
+    assert c.get("/help", headers=auth_header("u", "s3cret")
                  ).status_code == 200
-    assert c.get("/help", headers=auth_header("hashed", "nope")
+    assert c.get("/help", headers=auth_header("u", "nope")
                  ).status_code == 401
+    # the stored hash string itself is not the password
     h = generate_password_hash("s3cret")
-    assert c.get("/help", headers=auth_header("hashed", h)).status_code == 401
-    # plaintext entries keep working alongside hashed ones
-    assert c.get("/help", headers=auth_header("plain", "p")).status_code == 200
-    assert c.get("/help", headers=auth_header("plain", "x")).status_code == 401
+    assert c.get("/help", headers=auth_header("u", h)).status_code == 401
 
 
-def test_password_ok_detection():
-    from werkzeug.security import generate_password_hash
+def test_plaintext_auth_rejected_at_construction(root):
+    import minishare.hashpw as hashpw
+    with pytest.raises(ValueError, match="minishare.hashpw"):
+        make_blueprint(storage_dir=str(root), auth={"u": "p"})
+    with pytest.raises(ValueError):  # malformed hash, too
+        make_blueprint(storage_dir=str(root), auth={"u": "scrypt:bad"})
+    # create_app surfaces it the same way (env/CLI paths feed this)
+    with pytest.raises(ValueError):
+        create_app(storage_dir=str(root), auth={"u": "p"})
+    # the generator's output is accepted
+    assert make_blueprint(storage_dir=str(root),
+                          auth={"u": hashpw.generate_password_hash("p")})
+
+
+def test_password_ok_hash_only():
     from minishare.share import _password_ok
-    assert _password_ok("plainpw", "plainpw") is True
-    assert _password_ok("plainpw", "nope") is False
-    # a plaintext that contains '$' is still treated as plaintext
-    assert _password_ok("a$b$c", "a$b$c") is True
     g = generate_password_hash("hunter2")
     assert g.split(":", 1)[0] in ("scrypt", "pbkdf2")
     assert _password_ok(g, "hunter2") is True
     assert _password_ok(g, "Hunter2") is False
+
+
+def test_hashpw_script(monkeypatch, capsys):
+    import minishare.hashpw as hashpw
+    from werkzeug.security import check_password_hash
+
+    answers = iter(["s3cret", "s3cret"])
+    monkeypatch.setattr(hashpw.getpass, "getpass", lambda *_: next(answers))
+    assert hashpw.main() == 0
+    out = capsys.readouterr().out.strip()
+    assert out.split(":", 1)[0] in ("scrypt", "pbkdf2")
+    assert check_password_hash(out, "s3cret")
+
+    # mismatch -> non-zero, nothing printed
+    pair = iter(["a", "b"])
+    monkeypatch.setattr(hashpw.getpass, "getpass", lambda *_: next(pair))
+    assert hashpw.main() == 1
+    assert capsys.readouterr().out == ""
 
 
 # --------------------------------------------------------------------------- #
@@ -727,7 +755,7 @@ def _fake_clock(monkeypatch):
 
 def test_auth_backoff_grace_then_hard_block(tmp_path, monkeypatch):
     clock = _fake_clock(monkeypatch)
-    c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+    c = create_app(storage_dir=str(tmp_path), auth={"u": H()},
                     auth_rate_limit=10).test_client()
     a, b = _ip("9.9.9.9"), _ip("8.8.8.8")
     # no-credential request is the browser-challenge path: never throttled
@@ -758,7 +786,7 @@ def test_auth_backoff_grace_then_hard_block(tmp_path, monkeypatch):
 
 def test_auth_backoff_purges_idle_ips(tmp_path, monkeypatch):
     clock = _fake_clock(monkeypatch)
-    app = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+    app = create_app(storage_dir=str(tmp_path), auth={"u": H()},
                       auth_rate_limit=10)
     c = app.test_client()
     fails = app.blueprints["minishare"].ms_state["fails"]
@@ -771,7 +799,7 @@ def test_auth_backoff_purges_idle_ips(tmp_path, monkeypatch):
 
 
 def test_auth_backoff_disabled(tmp_path):
-    c = create_app(storage_dir=str(tmp_path), auth={"u": "p"},
+    c = create_app(storage_dir=str(tmp_path), auth={"u": H()},
                     auth_rate_limit=0).test_client()
     codes = [c.get("/help", headers=auth_header("u", "x")).status_code
              for _ in range(8)]

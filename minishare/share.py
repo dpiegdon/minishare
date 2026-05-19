@@ -8,7 +8,6 @@ same docs as plain text, and any listing endpoint can return JSON via
 """
 from __future__ import annotations
 
-import hmac
 import mimetypes
 import os
 import re
@@ -563,27 +562,23 @@ def _unauthorized():
 
 # A Werkzeug password hash: ``method$salt$hash`` where method is
 # ``scrypt:N:r:p`` or ``pbkdf2:digest:iters`` (from
-# ``werkzeug.security.generate_password_hash``). Used to tell a stored
-# hash apart from a stored plaintext password.
+# ``werkzeug.security.generate_password_hash``). ``auth`` values MUST
+# be such hashes — plaintext is not accepted (validated in
+# ``make_blueprint``); this also rejects an obviously-malformed config
+# instead of silently locking everyone out.
 _PW_HASH_RE = re.compile(r"^(?:scrypt|pbkdf2):[^$]+\$[^$]+\$")
 
 
 def _password_ok(stored: str, given: str) -> bool:
-    """Whether ``given`` matches the configured secret for a user.
+    """Whether ``given`` matches the stored Werkzeug hash for a user.
 
-    Each ``auth`` value may be a **plaintext** password (constant-time
-    compared) or a **Werkzeug password hash** — ``scrypt:...$...$...`` /
-    ``pbkdf2:...$...$...`` from
-    ``werkzeug.security.generate_password_hash`` — verified with
-    ``check_password_hash`` (also constant-time, but it runs the KDF on
-    every request, so a costly hash trades CPU per request for not
-    storing the secret in clear). Detection is structural: a plaintext
-    password shaped exactly like a Werkzeug hash would be treated as
-    one — don't pick such a password.
+    ``stored`` is always a hash (``scrypt:...$...$...`` /
+    ``pbkdf2:...$...$...``); plaintext passwords are not supported.
+    ``check_password_hash`` is constant-time but runs the KDF on every
+    request, so a costly hash trades CPU per request for never holding
+    the secret in clear.
     """
-    if _PW_HASH_RE.match(stored):
-        return check_password_hash(stored, given)
-    return hmac.compare_digest(stored, given)
+    return check_password_hash(stored, given)
 
 
 # Grace before the heavy per-IP auth block kicks in. A browser fires
@@ -976,11 +971,13 @@ def make_blueprint(
 
     :param storage_dir: directory to share; created if missing.
     :param name: blueprint name (must be unique per Flask app).
-    :param auth: ``{user: secret}``; non-empty == HTTP Basic required.
-        Each ``secret`` is either a plaintext password or a Werkzeug
-        password hash (``scrypt:...``/``pbkdf2:...`` from
-        ``werkzeug.security.generate_password_hash``); hashes are
-        verified with ``check_password_hash`` (KDF runs per request).
+    :param auth: ``{user: hash}``; non-empty == HTTP Basic required.
+        Each ``hash`` must be a Werkzeug password hash
+        (``scrypt:...``/``pbkdf2:...`` from
+        ``werkzeug.security.generate_password_hash`` — run
+        ``python -m minishare.hashpw``). Plaintext is **not** accepted;
+        a non-hash value raises ``ValueError`` here. Verified per
+        request with ``check_password_hash`` (the KDF runs each time).
     :param title: brand shown in the header / page title.
     :param max_mb: reject a single upload larger than this (413).
     :param max_total_mb: reject uploads once the storage directory
@@ -996,6 +993,16 @@ def make_blueprint(
     """
     storage_dir = os.path.abspath(storage_dir)
     os.makedirs(storage_dir, exist_ok=True)
+
+    # Hashes only — reject plaintext (or a malformed hash) up front
+    # rather than silently locking everyone out at request time.
+    for user, secret in (auth or {}).items():
+        if not _PW_HASH_RE.match(str(secret)):
+            raise ValueError(
+                f"auth secret for {user!r} is not a Werkzeug password "
+                "hash. minishare stores only hashes; generate one with "
+                "`python -m minishare.hashpw` and pass that string."
+            )
 
     bp = Blueprint(name, __name__)
     bp.ms_config = {
