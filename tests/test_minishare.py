@@ -339,7 +339,7 @@ def test_docs_single_source_ascii_unescaped(client):
     assert pre.isascii()                            # pure ASCII
     for bad in ("&lt;", "&gt;", "&#39;", "&#34;", "&amp;"):
         assert bad not in pre                       # not HTML-mangled
-    assert "curl '" in pre and '"../"' in pre       # quotes literal
+    assert "curl -sS '" in pre and '"../"' in pre    # quotes literal
     assert "$path" in pre and "<path>" not in pre
 
 

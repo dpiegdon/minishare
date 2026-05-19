@@ -259,7 +259,8 @@ def _api_doc(base: str, auth_on: bool = False) -> str:
     auth_note = (
         "\nAuthentication\n"
         "  This server requires HTTP Basic auth. Send credentials with every\n"
-        "  request, e.g.  curl -u USER:PASS '%s/browse/?format=json'\n" % base
+        "  request, e.g.  curl -sS -u USER:PASS '%s/browse/?format=json'\n"
+        % base
         if auth_on
         else ""
     )
@@ -282,24 +283,24 @@ Delete file or dir: DELETE {base}/delete/$path     (dirs: RECURSIVE)
                     (bulk: POST {base}/delete with repeated sel=$path)
 This help (text):   GET    {base}/help
 
-curl examples
+curl examples ( -sS = quiet, but still surface errors )
   # list the root as JSON
-  curl '{base}/browse/?format=json'
+  curl -sS '{base}/browse/?format=json'
 
   # download a file
-  curl -O '{base}/get/notes/todo.txt'
+  curl -sS -O '{base}/get/notes/todo.txt'
 
   # upload via multipart form into the 'docs' folder
-  curl -F file=@report.pdf '{base}/upload/docs'
+  curl -sS -F file=@report.pdf '{base}/upload/docs'
 
   # upload raw bytes to an exact path (parent dirs auto-created)
-  curl -T report.pdf '{base}/put/docs/report.pdf'
+  curl -sS -T report.pdf '{base}/put/docs/report.pdf'
 
   # create a directory (parents included)
-  curl -X POST '{base}/mkdir/docs/2026'
+  curl -sS -X POST '{base}/mkdir/docs/2026'
 
   # delete a file, or a whole directory tree
-  curl -X DELETE '{base}/delete/docs/old-stuff'
+  curl -sS -X DELETE '{base}/delete/docs/old-stuff'
 
 Notes
   * $path is relative to the share root; "../" and absolute paths are rejected.
