@@ -55,10 +55,20 @@ blueprint-relative, so any name and `url_prefix` just work.
 
 ## Authentication (optional)
 
-Pass a `{username: password}` dict. If non-empty, **every** request needs
+Pass a `{username: secret}` dict. If non-empty, **every** request needs
 HTTP Basic auth with one of those pairs; otherwise access is fully open.
-Passwords are compared in constant time; there are no roles — plain
-all-or-nothing access. The first 4 wrong-credential attempts from an IP
+Each `secret` is either a plaintext password (constant-time compared) or
+a Werkzeug password hash so you don't store secrets in clear:
+
+```bash
+python -c "from werkzeug.security import generate_password_hash as g; print(g('s3cret'))"
+# -> scrypt:32768:8:1$....$....   (use this string as the dict value,
+#    or  -a alice:'scrypt:...'  / MINISHARE_AUTH — split on the 1st ':')
+```
+
+Hashes are verified with `check_password_hash` (the KDF runs per
+request, so a costly hash trades CPU for not storing the password).
+There are no roles — plain all-or-nothing access. The first 4 wrong-credential attempts from an IP
 just get `401` (browsers retry on a normal login); past that the IP is
 blocked hard for `auth_rate_limit` seconds (default `10`) — further
 credentialed attempts get a `429` advising a ~15 s wait, with no

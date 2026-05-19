@@ -31,6 +31,7 @@ from flask import (
     send_file,
     url_for,
 )
+from werkzeug.security import check_password_hash
 from werkzeug.utils import safe_join, secure_filename
 
 
@@ -560,6 +561,31 @@ def _unauthorized():
     return resp
 
 
+# A Werkzeug password hash: ``method$salt$hash`` where method is
+# ``scrypt:N:r:p`` or ``pbkdf2:digest:iters`` (from
+# ``werkzeug.security.generate_password_hash``). Used to tell a stored
+# hash apart from a stored plaintext password.
+_PW_HASH_RE = re.compile(r"^(?:scrypt|pbkdf2):[^$]+\$[^$]+\$")
+
+
+def _password_ok(stored: str, given: str) -> bool:
+    """Whether ``given`` matches the configured secret for a user.
+
+    Each ``auth`` value may be a **plaintext** password (constant-time
+    compared) or a **Werkzeug password hash** — ``scrypt:...$...$...`` /
+    ``pbkdf2:...$...$...`` from
+    ``werkzeug.security.generate_password_hash`` — verified with
+    ``check_password_hash`` (also constant-time, but it runs the KDF on
+    every request, so a costly hash trades CPU per request for not
+    storing the secret in clear). Detection is structural: a plaintext
+    password shaped exactly like a Werkzeug hash would be treated as
+    one — don't pick such a password.
+    """
+    if _PW_HASH_RE.match(stored):
+        return check_password_hash(stored, given)
+    return hmac.compare_digest(stored, given)
+
+
 # Grace before the heavy per-IP auth block kicks in. A browser fires
 # several requests per login (the challenge, parallel page assets,
 # password-manager retries), so a 1-strike limiter throttles honest
@@ -623,7 +649,7 @@ def _enforce_auth():
     ok = False
     if a is not None and a.password is not None:
         expected = users.get(a.username or "")
-        ok = expected is not None and hmac.compare_digest(
+        ok = expected is not None and _password_ok(
             str(expected), a.password
         )
 
@@ -950,7 +976,11 @@ def make_blueprint(
 
     :param storage_dir: directory to share; created if missing.
     :param name: blueprint name (must be unique per Flask app).
-    :param auth: ``{user: password}``; non-empty == HTTP Basic required.
+    :param auth: ``{user: secret}``; non-empty == HTTP Basic required.
+        Each ``secret`` is either a plaintext password or a Werkzeug
+        password hash (``scrypt:...``/``pbkdf2:...`` from
+        ``werkzeug.security.generate_password_hash``); hashes are
+        verified with ``check_password_hash`` (KDF runs per request).
     :param title: brand shown in the header / page title.
     :param max_mb: reject a single upload larger than this (413).
     :param max_total_mb: reject uploads once the storage directory

@@ -456,6 +456,40 @@ def test_auth_enforced(root):
     assert c.get("/help", headers=auth_header("u", "p")).status_code == 200
 
 
+def test_auth_accepts_password_hash(root):
+    from werkzeug.security import generate_password_hash
+    c = create_app(
+        storage_dir=str(root),
+        auth={"hashed": generate_password_hash("s3cret"),  # scrypt/pbkdf2
+              "plain": "p"},                                # still works
+        auth_rate_limit=0,
+    ).test_client()
+    # hashed user: only the right password verifies; the stored hash
+    # string itself must NOT be accepted as the password
+    assert c.get("/help", headers=auth_header("hashed", "s3cret")
+                 ).status_code == 200
+    assert c.get("/help", headers=auth_header("hashed", "nope")
+                 ).status_code == 401
+    h = generate_password_hash("s3cret")
+    assert c.get("/help", headers=auth_header("hashed", h)).status_code == 401
+    # plaintext entries keep working alongside hashed ones
+    assert c.get("/help", headers=auth_header("plain", "p")).status_code == 200
+    assert c.get("/help", headers=auth_header("plain", "x")).status_code == 401
+
+
+def test_password_ok_detection():
+    from werkzeug.security import generate_password_hash
+    from minishare.share import _password_ok
+    assert _password_ok("plainpw", "plainpw") is True
+    assert _password_ok("plainpw", "nope") is False
+    # a plaintext that contains '$' is still treated as plaintext
+    assert _password_ok("a$b$c", "a$b$c") is True
+    g = generate_password_hash("hunter2")
+    assert g.split(":", 1)[0] in ("scrypt", "pbkdf2")
+    assert _password_ok(g, "hunter2") is True
+    assert _password_ok(g, "Hunter2") is False
+
+
 # --------------------------------------------------------------------------- #
 # Docs: single source, pure ASCII, unescaped, injection-safe
 # --------------------------------------------------------------------------- #
