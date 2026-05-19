@@ -1,54 +1,37 @@
 # minishare
 
-A minimal Flask **blueprint-based** file-sharing server: browse, download,
-upload, create and delete (files & directories). Built to be trivially
-usable by **both humans and agents**:
-
-- the full API/curl reference is documented in **one** place
-  (`_api_doc`) and shown two ways: served verbatim at `GET /help`
-  (plain text), and embedded at the **very top** of every listing page
-  (above the breadcrumb) in a **collapsed** `<details>` block — folded
-  away for humans, but present in the raw HTML so an agent doing
-  `curl /` sees it first. The text is pure ASCII and rendered unescaped
-  (no `&lt;` / `&#39;` noise) — placeholders read `$path` / `$dir`;
-- any listing can be requested as JSON (`?format=json`), and mutating
-  endpoints reply with JSON to agents but redirect browsers back to the UI;
-- optional per-upload and total-storage size caps; every page shows a
-  small `storage: n.n / m MB` (or `n.n MB (unlimited)`) indicator.
+A minimal Flask **blueprint** file-sharing server: browse, download,
+upload, create and delete (files & directories) — usable by **both
+humans and agents**. The full API lives in one place (`_api_doc`),
+served at `GET /help` and folded into the top of every page, so an agent
+doing `curl /` sees it immediately. Any listing can be requested as JSON
+(`?format=json`); mutating endpoints answer agents with JSON and browsers
+with a redirect. Optional per-upload / total-storage caps; every page
+shows a small `storage:` indicator.
 
 ## Run standalone
 
 ```bash
 pip install -r requirements.txt
-python -m minishare                 # serves ./data on http://0.0.0.0:8000, open
-python -m minishare -d /srv/files -p 9000
-python -m minishare -a alice:s3cret -a bob:hunter2   # require HTTP Basic auth
-python -m minishare -x /files                        # mount under a prefix
-python -m minishare -t "Acme Files"                  # custom brand name
-python -m minishare --max-mb 50 --max-total-mb 2000  # size caps
-python -m minishare -a u:p --auth-rate-limit 5       # 5s per-IP backoff
+python -m minishare                                  # serve ./data on :8000
+python -m minishare -d /srv/files -p 9000 -t "Acme Files"
+python -m minishare -a alice:s3cret -a bob:hunter2   # HTTP Basic auth
+python -m minishare -x /files --max-mb 50 --max-total-mb 2000
 ```
 
-`python run.py …` still works as a dev shim. The shared directory is created
-if missing. Override via `-d/--dir` or the `MINISHARE_DIR` env var. The
-header brand / page title defaults to `minishare`; override with
-`-t/--title` or `MINISHARE_TITLE`. Clicking the brand goes back to the
-share root. Size caps: `--max-mb` (single upload) and `--max-total-mb`
-(whole store; default unlimited), or the `MINISHARE_MAX_MB` /
-`MINISHARE_MAX_TOTAL_MB` env vars — once full, uploads get a `413` but
-downloads and deletes still work.
+The shared dir is created if missing. Flags: `-d/--dir`, `-H/--host`,
+`-p/--port`, `-x/--prefix`, `-t/--title`, `-a/--auth USER:PASS` (repeat),
+`--max-mb`, `--max-total-mb`, `--auth-rate-limit`, `--debug`. Each has a
+`MINISHARE_*` env equivalent.
 
 ## Use as a git submodule
 
-Add the repo to a parent project, build a blueprint with `make_blueprint`
-and register it on **your** app yourself. All configuration is by
-parameter — nothing is written to `app.config`, so the host app is
-untouched and you can mount **several independent instances**:
+All configuration is by parameter — nothing touches `app.config`, so the
+host app is untouched and you can mount several independent instances:
 
 ```bash
 git submodule add <repo-url> third_party/minishare
-git submodule update --init
-pip install -e third_party/minishare      # or: add the dir to sys.path
+pip install -e third_party/minishare
 ```
 
 ```python
@@ -62,145 +45,77 @@ app.register_blueprint(
                    max_total_mb=2000),
     url_prefix="/files",
 )
-app.register_blueprint(                       # a second, fully independent mount
-    make_blueprint(name="public", storage_dir="/srv/public"),
-    url_prefix="/public",
-)
 ```
 
-The blueprint is self-contained (no extra templates/static). Give each
-instance a unique `name`; every in-page link / `url_for` is
-blueprint-relative, so any name and `url_prefix` just work. `make_blueprint`
-parameters: `storage_dir` (required), `name`, `auth`, `title`, `max_mb`,
-`max_total_mb`, `auth_rate_limit` (per-IP failed-auth backoff in seconds,
-default `2.0`, `0` disables).
+`make_blueprint` parameters: `storage_dir` (required), `name`, `auth`,
+`title`, `max_mb`, `max_total_mb`, `auth_rate_limit` (per-IP failed-auth
+backoff in seconds, default `2.0`, `0` disables). Give each instance a
+unique `name`; in-page links are blueprint-relative, so any name and
+`url_prefix` just work.
 
 ## Authentication (optional)
 
-Pass a `{username: password}` dict to `make_blueprint`/`create_app`. If it
-is non-empty, **every** request must pass HTTP Basic auth with one of those
-pairs; otherwise access is fully open.
-
-```python
-from minishare import create_app
-app = create_app(storage_dir="data", auth={"alice": "s3cret", "bob": "hunter2"})
-```
-
-Equivalent without code: `-a USER:PASS` (repeatable) on the CLI, or the
-`MINISHARE_AUTH="alice:s3cret,bob:hunter2"` env var. Passwords are compared
-in constant time (`hmac.compare_digest`). There are no roles or per-path
-rules — it is plain all-or-nothing access.
-
-**Brute-force backoff:** a wrong-credential attempt arms a per-IP
-cooldown (`auth_rate_limit` seconds, default **2.0**); a further
-credentialed attempt from that IP inside the window gets `429` without a
-password check. Requests with no credentials (the browser challenge
-flow) are never throttled; a correct login clears the IP. Set
-`auth_rate_limit=0` / `--auth-rate-limit 0` / `MINISHARE_AUTH_RATE_LIMIT=0`
-to disable. Uses `request.remote_addr` (apply `ProxyFix` behind a proxy;
-limiter is per worker process).
-
-```bash
-curl -u alice:s3cret 'http://host:8000/browse/?format=json'
-```
-
-Browsers prompt automatically; a `401` body tells CLI/agent callers exactly
-how to authenticate, and `GET /help` documents it when auth is enabled.
+Pass a `{username: password}` dict. If non-empty, **every** request needs
+HTTP Basic auth with one of those pairs; otherwise access is fully open.
+Passwords are compared in constant time; there are no roles — plain
+all-or-nothing access. A wrong-credential attempt arms a per-IP backoff
+(`auth_rate_limit` s); a further credentialed attempt inside the window
+gets `429`. No-credential challenge requests are never throttled.
 
 ## API
 
-From a **browser** every listing page lets a human browse into/out of
-directories, download files, upload files (multi-select or drag & drop),
-create a folder, and delete entries: tick the checkboxes in the last
-column (or the **all** button to select/clear everything) and hit
-**Delete** (greyed out until something is selected, with a confirm
-prompt). The same actions are available as documented endpoints for
-**agents/scripts**:
+Browsers get a full UI (browse, download, multi-select/drag-drop upload,
+create folder, checkbox delete). The same actions are documented
+endpoints for agents:
 
 | Action            | Request                                       |
 |-------------------|-----------------------------------------------|
 | Browse (HTML)     | `GET /` · `GET /browse/<path>`                |
 | Browse (JSON)     | `GET /browse/<path>?format=json`              |
-| Download          | `GET /get/<path>`                             |
-| View inline       | `GET /get/<path>?inline=1`                    |
+| Download          | `GET /get/<path>` (`?inline=1` to view)       |
 | Upload (form)     | `POST /upload[/<dir>]` field `file`           |
 | Upload (raw)      | `PUT /put/<path>` body = file bytes           |
 | Create directory  | `POST /mkdir/<path>` (`mkdir -p`)             |
 | Delete file/dir   | `DELETE /delete/<path>` (dirs: **recursive**) |
-| Delete (bulk)     | `POST /delete` repeated `sel=<path>` fields    |
+| Delete (bulk)     | `POST /delete` repeated `sel=<path>`          |
 | Docs (plain text) | `GET /help`                                   |
 
 ```bash
-curl 'http://host:8000/browse/?format=json'      # list root as JSON
-curl -O 'http://host:8000/get/notes/todo.txt'    # download
-curl -F file=@report.pdf 'http://host:8000/upload/docs'   # multipart
-curl -T report.pdf 'http://host:8000/put/docs/report.pdf' # raw body
-curl -X POST 'http://host:8000/mkdir/docs/2026'           # create dir
-curl -X DELETE 'http://host:8000/delete/docs/old'         # delete (recursive)
+curl -sS 'http://host:8000/browse/?format=json'
+curl -sS -O 'http://host:8000/get/notes/todo.txt'
+curl -sS -F file=@report.pdf 'http://host:8000/upload/docs'
+curl -sS -T report.pdf 'http://host:8000/put/docs/report.pdf'
+curl -sS -X DELETE 'http://host:8000/delete/docs/old'
 ```
 
 `<path>` is relative to the share root; `../` and absolute paths are
-rejected (`werkzeug.safe_join`). `PUT` creates parent directories and
-overwrites; multipart filenames and new folder names are sanitized.
-Deleting a directory removes it **recursively**; the share root itself
-cannot be deleted. Agents use `DELETE /delete/<path>` for a single item
-(reply `{"deleted": "<path>"}`); the browser checkbox UI POSTs the
-checked rows as repeated `sel=<path>` fields to `/delete`
-(reply `{"deleted": [...]}`), since browsers can't send `DELETE` from a
-form.
-
-## Tests
-
-```bash
-pip install -e ".[dev]"   # Flask + pytest
-pytest                    # 34 tests: routes, auth, traversal/symlink,
-                          # content negotiation, single-source docs, UI
-```
-
-## Layout
-
-```
-minishare/__init__.py   # create_app() + make_blueprint() — public API
-minishare/share.py      # make_blueprint() + all routes (self-contained)
-minishare/cli.py        # argparse runner (python -m minishare)
-minishare/__main__.py   # enables `python -m minishare`
-run.py                  # dev shim -> minishare.cli:main
-tests/ + conftest.py    # pytest suite
-pyproject.toml          # installable: pip install -e ".[dev]"
-AGENTS.md               # project knowledge + dev criteria (read first)
-```
+rejected. Single delete returns `{"deleted": "<path>"}`, bulk returns
+`{"deleted": [...]}`.
 
 ## Security
 
-Built-in protections: path traversal is blocked (`safe_join` + realpath
-containment, incl. symlink escape); passwords use constant-time compare;
-the 401 is generic (no software fingerprint); responses carry
-`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: same-origin`; downloads get `Content-Security-Policy:
-sandbox` and HTML/SVG can never be served `inline` (forced to
-attachment) so a stored file can't script in this origin; and
-state-changing requests (`POST/PUT/DELETE`) are refused cross-origin
-(`Origin`/`Referer` must match) — curl/agents send neither and are
-unaffected. Size caps are enforced on the **actual bytes received**, not
-the `Content-Length` header: `PUT` is streamed to disk with a hard
-ceiling (bounded memory, even uncapped) and atomically renamed; an
-oversize multipart upload is rolled back. So `max_mb`/`max_total_mb`
-hold **without** a proxy. Basic-auth brute force is slowed by a built-in
-per-IP backoff (default 2 s; see Authentication).
+Path traversal blocked (`safe_join` + realpath, incl. symlink escape);
+constant-time password compare; generic 401 (no fingerprint); every
+response carries `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy:
+same-origin`; downloads get `Content-Security-Policy: sandbox` and
+HTML/SVG is always sent as an attachment; `POST/PUT/DELETE` are refused
+cross-origin (curl/agents send no `Origin`/`Referer` and are unaffected).
+Size caps are enforced on bytes actually received (streamed `PUT`,
+rolled-back oversize multipart), so they hold without a proxy.
 
-Known limitations — handle at the deployment boundary (no proxy = these
-are on you):
+Deployment is on you (no proxy assumed): use a production WSGI server,
+never `--debug` on a reachable port, terminate TLS before HTTP Basic, and
+remember anyone who can reach an unauthenticated instance can delete. The
+per-IP backoff is per-process / per-`remote_addr` — behind a proxy apply
+`ProxyFix` and/or a real rate limiter.
 
-- **Dev server.** Use a production WSGI server for real load. **Never**
-  `--debug` on a reachable port (Werkzeug debugger ≈ RCE).
-- **No TLS.** HTTP Basic is cleartext — without a TLS-terminating proxy,
-  only enable `auth` on a trusted network (or front it with TLS).
-- **No per-user authorization.** Anyone who can reach it (everyone, if no
-  `auth` dict) can upload, overwrite and **delete**. Set `auth` and/or
-  network-restrict it (bind to localhost / firewall).
-- **Brute-force backoff is per-process and per-`remote_addr`.** Good
-  enough for a single dev-server process on a trusted network; for
-  multi-worker or behind-proxy setups apply `ProxyFix` and/or a
-  dedicated rate limiter.
-- Pin `SERVER_NAME` if the reachable `Host` shouldn't appear in `/help`
-  URLs (already injection-sanitized; cosmetic/phishing only).
+## Tests / layout
+
+```bash
+pip install -e ".[dev]"   # Flask + pytest
+pytest
+```
+
+`minishare/__init__.py` (public API), `minishare/share.py`
+(`make_blueprint` + all routes), `minishare/cli.py` (runner), `tests/`.
+See `AGENTS.md` for the project working agreement — read it first.

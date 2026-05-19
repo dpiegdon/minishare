@@ -339,12 +339,15 @@ _PAGE = """<!doctype html>
   #selall{font-size:12px;margin-right:.3rem}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
+  .tip{font-size:12px;margin:.4rem 0 0;color:#444}
+  .tip code{background:#eef;padding:.05rem .3rem;border-radius:3px}
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
   .crumb{color:#666}
   .su{color:#888;font-size:12px;margin:-.4rem 0 .8rem}
 </style>
 <details>
   <summary>CLI / API usage (for agents &amp; scripts)</summary>
+  <p class="tip">Point your agent to <code>curl -sS {{ doc_base }}/help</code></p>
   <pre>{{ doc|safe }}</pre>
 </details>
 <h1>📂 <a href="{{ root_url }}" title="go to share root">{{ title }}</a>
@@ -632,6 +635,7 @@ def browse(subpath: str = ""):
     parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
     cfg = _cfg()
     auth_on = bool(cfg["auth"])
+    base = _doc_base()
     return render_template_string(
         _PAGE,
         subpath=subpath,
@@ -645,7 +649,8 @@ def browse(subpath: str = ""):
         mkdir_url=url_for(".mkdir", subpath=subpath),
         delete_url=url_for(".delete"),
         human=_human_size,
-        doc=_api_doc(_doc_base(), auth_on),
+        doc=_api_doc(base, auth_on),
+        doc_base=base,
     )
 
 

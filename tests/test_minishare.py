@@ -149,6 +149,18 @@ def test_browse_html_has_brand_and_details_on_top(client):
     assert html.index("<details>") < html.index("<h1>")
 
 
+def test_fold_starts_with_help_pointer(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "Point your agent to <code>curl -sS " in html
+    assert "/help</code>" in html
+    # The pointer sits at the top of the fold: inside <details>, above <pre>.
+    assert (
+        html.index("<details>")
+        < html.index("Point your agent to")
+        < html.index("<pre>")
+    )
+
+
 def test_browse_missing_404_and_file_redirects(client, root):
     assert client.get("/browse/nope").status_code == 404
     (root / "f.txt").write_text("x")
