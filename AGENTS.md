@@ -59,7 +59,11 @@ the same time**. Concretely:
   ours; a literal `Origin: null` is treated as cross-site and blocked;
   curl/agents send neither and are allowed — the dual-audience
   contract);
-  the 401 stays generic (no software name in body or realm). Auth has a
+  the 401 stays generic (no software name in body or realm). The auth
+  docs in `API.md` must never show credentials on the curl command line
+  (`-u USER:PASS` / building the file with `echo` leaks them to `ps` and
+  shell history) — they teach the `-K` config-file (and `.netrc`)
+  recipe instead; keep it that way. Auth has a
   per-IP brute-force backoff (`auth_rate_limit`, default 10 s, per-blueprint
   `ms_state` as `{ip: (count, ts)}`): the first `_AUTH_FAIL_GRACE` (4)
   *credentialed* wrong attempts are a grace zone (browsers retry — a

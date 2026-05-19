@@ -65,6 +65,10 @@ credentialed attempts get a `429` advising a ~15 s wait, with no
 password check. A correct login clears the IP; no-credential challenge
 requests are never counted or throttled.
 
+Don't pass credentials on the command line (`curl -u USER:PASS` leaks
+them into shell history and `ps`); `GET /help` documents a curl config
+(`-K`) / `.netrc` recipe that keeps the secret in a locked-down file.
+
 ## API
 
 Browsers get a full UI (browse, download, multi-select/drag-drop upload,

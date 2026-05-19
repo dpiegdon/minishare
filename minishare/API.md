@@ -11,12 +11,38 @@ the share root and "../" or absolute paths are rejected.
 
 ## Authentication
 
-This server may require HTTP Basic auth. When it does, the `401` response
-and `GET $BASE/help` say so; then send credentials with every request:
+This server may require HTTP Basic auth - the `401` response and
+`GET $BASE/help` say so. Do NOT pass credentials on the command line:
+`curl -u USER:PASS` (and creating the file below with `echo`/`printf`)
+leaks the password into your shell history and the system process list
+(anyone can see it via `ps`). Keep the secret in a file curl reads.
+
+Preferred - a curl config file. Create `ms.curl` with your editor or
+file tool (not a shell redirect), containing exactly:
 
 ```
-curl -sS -u USER:PASS '$BASE/browse/?format=json'
+user = "USER:PASS"
 ```
+
+Lock it down and use `-K` on every request - nothing secret ever
+reaches argv or the history file:
+
+```
+chmod 600 ms.curl
+curl -sS -K ms.curl '$BASE/browse/?format=json'
+```
+
+Alternative - a `.netrc` file `ms.netrc` (HOST = the host part of
+`$BASE`, no scheme or port) containing exactly:
+
+```
+machine HOST login USER password PASS
+```
+
+then `curl -sS --netrc-file ms.netrc '$BASE/browse/?format=json'`.
+Either file is plaintext at rest: keep tight permissions and delete it
+when done - this only keeps the secret out of history and `ps`, not
+off disk.
 
 ## Endpoints
 
@@ -46,6 +72,9 @@ between a stray request and irreversible data loss - treat it as a
 ## curl examples
 
 ```bash
+# auth enabled? add  -K ms.curl  to every command below (see
+# Authentication) - never put -u USER:PASS on the command line
+
 # list the root as JSON
 curl -sS '$BASE/browse/?format=json'
 
