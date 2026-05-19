@@ -30,15 +30,21 @@ the same time**. Concretely:
   (`minishare/share.py`), one inline HTML template, tiny inline JS. No
   new dependencies, no build step, no client framework. Justify any new
   file.
-- **Single source of truth for docs.** `_api_doc()` is the *only* API
-  text. It is served verbatim at `/help` and embedded in the in-page
-  `<details>`. Never fork it. It must stay **pure ASCII** and avoid the
+- **Single source of truth for docs.** `minishare/API.md` is the *only*
+  API text. It is linked from the README for humans and, via
+  `_api_doc()` / `_load_api_template()`, served verbatim at `/help` and
+  embedded in the in-page `<details>` for agents. Edit `API.md`, never
+  fork it; don't re-add an endpoint table to the README. Its Markdown
+  code fences (```` ``` ````) are stripped before serving (they exist
+  only for GitHub rendering). It must stay **pure ASCII** and avoid the
   HTML-significant characters `< > &` — it is rendered with `|safe`, so
   those are *not* escaped and would corrupt the page; that's why
   placeholders are `$path` / `$dir`, not `<path>`. Quotes (`'` `"`) are
-  fine and used deliberately in the curl examples — `|safe` no longer
-  mangles them. The only dynamic value, `_doc_base()` (Host-derived), is
-  sanitised to URL-safe chars so `|safe` stays injection-proof.
+  fine and used deliberately in the curl examples. The only substitution
+  is `$BASE` → `_doc_base()` (Host-derived), which is sanitised to
+  URL-safe chars so `|safe` stays injection-proof. `API.md` ships with
+  the package (`[tool.setuptools.package-data]`) so every install mode
+  has it next to `share.py`.
 - **Security is not optional.** All filesystem access goes through
   `_resolve()` (`werkzeug.safe_join` + realpath containment against
   symlink escape). Don't bypass it. Any path-handling change needs a
@@ -97,8 +103,8 @@ the same time**. Concretely:
 2. **Refactor as you go.** Leave the code cleaner than you found it:
    dedupe, extract helpers (`_respond`, `_resolve`), kill dead code. Do
    a quick self code-review every round.
-3. **Keep docs true.** Update `_api_doc()` (→ `/help` + in-page) and
-   `README.md` whenever behaviour, routes, flags, or signatures change.
+3. **Keep docs true.** Update `minishare/API.md` (→ `/help` + in-page)
+   and `README.md` whenever behaviour, routes, flags, or signatures change.
    Re-audit them when asked.
 4. **Verify for real.** Exercise the change against a live server or the
    test client; don't claim behaviour you didn't observe. Report

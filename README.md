@@ -66,31 +66,9 @@ gets `429`. No-credential challenge requests are never throttled.
 
 Browsers get a full UI (browse, download, multi-select/drag-drop upload,
 create folder, checkbox delete). The same actions are documented
-endpoints for agents:
-
-| Action            | Request                                       |
-|-------------------|-----------------------------------------------|
-| Browse (HTML)     | `GET /` · `GET /browse/<path>`                |
-| Browse (JSON)     | `GET /browse/<path>?format=json`              |
-| Download          | `GET /get/<path>` (`?inline=1` to view)       |
-| Upload (form)     | `POST /upload[/<dir>]` field `file`           |
-| Upload (raw)      | `PUT /put/<path>` body = file bytes           |
-| Create directory  | `POST /mkdir/<path>` (`mkdir -p`)             |
-| Delete file/dir   | `DELETE /delete/<path>` (dirs: **recursive**) |
-| Delete (bulk)     | `POST /delete` repeated `sel=<path>`          |
-| Docs (plain text) | `GET /help`                                   |
-
-```bash
-curl -sS 'http://host:8000/browse/?format=json'
-curl -sS -O 'http://host:8000/get/notes/todo.txt'
-curl -sS -F file=@report.pdf 'http://host:8000/upload/docs'
-curl -sS -T report.pdf 'http://host:8000/put/docs/report.pdf'
-curl -sS -X DELETE 'http://host:8000/delete/docs/old'
-```
-
-`<path>` is relative to the share root; `../` and absolute paths are
-rejected. Single delete returns `{"deleted": "<path>"}`, bulk returns
-`{"deleted": [...]}`.
+endpoints for agents/scripts in **[API.md](minishare/API.md)** — the
+single source, served verbatim (with the live base URL) at `GET /help`
+and folded into the top of every page.
 
 ## Security
 

@@ -9,8 +9,11 @@ from __future__ import annotations
 import base64
 import io
 import os
+from pathlib import Path
 
 import pytest
+
+import minishare
 
 from minishare import _parse_auth_env, create_app, make_blueprint
 from flask import Flask
@@ -358,6 +361,28 @@ def test_docs_single_source_ascii_unescaped(client):
 def test_help_is_plain_text(client):
     r = client.get("/help")
     assert r.mimetype == "text/plain"
+
+
+def test_api_md_is_the_single_doc_source(client):
+    """API.md (linked from the README) is what the server serves."""
+    api_md = Path(minishare.__file__).with_name("API.md")
+    src = api_md.read_text(encoding="utf-8")
+    # Same constraints as the served text: ASCII, no HTML-significant chars.
+    assert src.isascii()
+    for ch in ("<", ">", "&"):
+        assert ch not in src
+    assert "$BASE" in src and "```" in src       # template + GitHub fences
+
+    helptxt = client.get("/help").get_data(as_text=True)
+    assert "$BASE" not in helptxt                 # substituted at serve time
+    assert "http://localhost/" in helptxt         # ... with the live base
+    assert "$path" in helptxt                     # literal placeholder kept
+    # GitHub code fences are stripped from the served plain text.
+    assert not any(
+        ln.lstrip().startswith("```") for ln in helptxt.splitlines()
+    )
+    # Editing API.md changes the server output (single source, no fork).
+    assert "RECURSIVE" in src and "RECURSIVE" in helptxt
 
 
 def test_host_header_cannot_inject(client):

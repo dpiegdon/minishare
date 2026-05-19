@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlparse
 
 from flask import (
@@ -248,68 +249,40 @@ def _listing(full_dir: str, subpath: str) -> list[dict]:
     return entries
 
 
-def _api_doc(base: str, auth_on: bool = False) -> str:
+def _load_api_template() -> str:
+    """The API doc body, read once from the co-located ``API.md``.
+
+    ``API.md`` is the *single source* of API docs: linked from the
+    README for humans and served by the server for agents. Its Markdown
+    code-fence lines (```` ``` ````) exist only so it renders nicely on
+    GitHub; they are stripped here so ``GET /help`` and the in-page fold
+    stay clean plain text. The file must stay pure ASCII and free of the
+    HTML-significant characters ``< > &`` — it is rendered with ``|safe``
+    (see ``_api_doc``). ``$BASE`` is the only substitution; ``$path`` /
+    ``$dir`` are deliberately literal placeholders.
+    """
+    raw = Path(__file__).with_name("API.md").read_text(encoding="utf-8")
+    return "\n".join(
+        ln for ln in raw.splitlines() if not ln.lstrip().startswith("```")
+    )
+
+
+_API_TEMPLATE = _load_api_template()
+
+
+def _api_doc(base: str) -> str:
     """The single source of API documentation (primary audience: agents).
 
-    Served verbatim at ``GET /help`` (plain text) and embedded in every
-    HTML listing's folded ``<details>`` block near the top of the page —
-    an agent fetching the page sees this in the raw HTML even though it
-    is visually collapsed for humans. Edit it here only, once.
+    Loaded from ``API.md`` (see ``_load_api_template``); ``$BASE`` is
+    filled with this mount's external URL. Served verbatim at ``GET
+    /help`` and embedded in every HTML listing's folded ``<details>``
+    block near the top of the page — an agent fetching the page sees it
+    in the raw HTML even though it is visually collapsed for humans.
+    ``base`` comes from ``_doc_base()`` and is already sanitised to
+    URL-safe characters, so the result is injection-safe even though the
+    page renders it with ``|safe``.
     """
-    auth_note = (
-        "\nAuthentication\n"
-        "  This server requires HTTP Basic auth. Send credentials with every\n"
-        "  request, e.g.  curl -sS -u USER:PASS '%s/browse/?format=json'\n"
-        % base
-        if auth_on
-        else ""
-    )
-    return f"""minishare - API (the HTML pages are just a UI; the API is
-self-service for agents/scripts).
-
-AGENTS: add ?format=json to any listing for a JSON response; mutating
-endpoints already return JSON to non-browser clients. This exact text is
-also at GET {base}/help .
-{auth_note}
-
-Browse (HTML):      GET    {base}/
-Browse (JSON):      GET    {base}/browse/$path?format=json
-Download a file:    GET    {base}/get/$path
-View inline:        GET    {base}/get/$path?inline=1
-Upload (multipart): POST   {base}/upload[/$dir]    field name: file
-Upload (raw body):  PUT    {base}/put/$path        body = file contents
-Make a directory:   POST   {base}/mkdir/$path      (mkdir -p)
-Delete file or dir: DELETE {base}/delete/$path     (dirs: RECURSIVE)
-                    (bulk: POST {base}/delete with repeated sel=$path)
-This help (text):   GET    {base}/help
-
-curl examples ( -sS = quiet, but still surface errors )
-  # list the root as JSON
-  curl -sS '{base}/browse/?format=json'
-
-  # download a file
-  curl -sS -O '{base}/get/notes/todo.txt'
-
-  # upload via multipart form into the 'docs' folder
-  curl -sS -F file=@report.pdf '{base}/upload/docs'
-
-  # upload raw bytes to an exact path (parent dirs auto-created)
-  curl -sS -T report.pdf '{base}/put/docs/report.pdf'
-
-  # create a directory (parents included)
-  curl -sS -X POST '{base}/mkdir/docs/2026'
-
-  # delete a file, or a whole directory tree
-  curl -sS -X DELETE '{base}/delete/docs/old-stuff'
-
-Notes
-  * $path is relative to the share root; "../" and absolute paths are rejected.
-  * PUT creates missing parent directories and overwrites existing files.
-  * mkdir is idempotent; deleting a directory removes it RECURSIVELY.
-  * No auth configured == anyone who can reach the server can also delete.
-  * Uploads may return 413 if a per-upload or total-storage limit is set;
-    downloads and deletes always work. The HTML pages show storage use.
-"""
+    return _API_TEMPLATE.replace("$BASE", base)
 
 
 # --------------------------------------------------------------------------- #
@@ -634,7 +607,6 @@ def browse(subpath: str = ""):
 
     parent = subpath.rsplit("/", 1)[0] if "/" in subpath else ""
     cfg = _cfg()
-    auth_on = bool(cfg["auth"])
     base = _doc_base()
     return render_template_string(
         _PAGE,
@@ -649,7 +621,7 @@ def browse(subpath: str = ""):
         mkdir_url=url_for(".mkdir", subpath=subpath),
         delete_url=url_for(".delete"),
         human=_human_size,
-        doc=_api_doc(base, auth_on),
+        doc=_api_doc(base),
         doc_base=base,
     )
 
@@ -810,7 +782,7 @@ def delete(subpath: str = ""):
 def help_text():
     """Plain-text API docs — handy for `curl host/help`."""
     return current_app.response_class(
-        _api_doc(_doc_base(), bool(_cfg()["auth"])),
+        _api_doc(_doc_base()),
         mimetype="text/plain",
     )
 

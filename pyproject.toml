@@ -21,3 +21,6 @@ testpaths = ["tests"]
 
 [tool.setuptools]
 packages = ["minishare"]
+
+[tool.setuptools.package-data]
+minishare = ["API.md"]
