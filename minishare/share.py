@@ -311,17 +311,19 @@ def _agent_brief(base: str, auth_on: bool) -> str:
     the already-sanitised ``_doc_base()``, so this is safe with
     ``|safe``.
     """
+    fetch = f"There is a minishare file server at {base}.\n"
     if auth_on:
-        fetch = (
-            f"This is a minishare file server at {base}. It needs a "
-            "username and\npassword (I will give you them next); put "
-            'them in a file ms.curl as one\nline:\n  user = "USER:PASS"\n'
-            f"Its API reference is:\n  curl -sS -K ms.curl {base}/help\n"
+        fetch += (
+            "It needs username and password I will give you next.\n"
+            'Put them in a file ms.curl as one line:\n'
+            '  user = "USER:PASS"\n'
+            f"Its API reference is:\n"
+            f"  curl -sS -K ms.curl {base}/help\n"
         )
     else:
-        fetch = (
-            f"This is a minishare file server at {base}.\n"
-            f"Its API reference is:\n  curl -sS {base}/help\n"
+        fetch += (
+            f"Its API reference is:\n"
+            f"  curl -sS {base}/help\n"
         )
     return fetch + (
         "That page is only an endpoint reference plus a short curl "

@@ -6,7 +6,7 @@ endpoints return JSON to non-browser clients and redirect browsers.
 This same text is served at `GET $BASE/help`.
 
 `$BASE` is this server's base URL. `$path` and `$dir` are placeholders;
-`$path` is relative to the share root and "../" or absolute paths are
+`$path` is relative to the share root; "../" or absolute paths are
 rejected (400).
 
 ## Authentication
@@ -59,7 +59,7 @@ operation proceeds and the change is irreversible.
 ## curl examples
 
 ```bash
-# if auth is enabled, add  -K ms.curl  to each command (see Authentication)
+# if auth is enabled, add `-K ms.curl` to each command (see Authentication)
 
 # list the root as JSON
 curl -sS '$BASE/browse/?format=json'
