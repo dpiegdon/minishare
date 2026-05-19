@@ -62,7 +62,7 @@ the same time**. Concretely:
   the 401 stays generic (no software name in body or realm). The auth
   docs in `API.md` must never show credentials on the curl command line
   (`-u USER:PASS` / building the file with `echo` leaks them to `ps` and
-  shell history) — they teach the `-K` config-file (and `.netrc`)
+  shell history) — they teach the single `-K ms.curl` config-file
   recipe instead; keep it that way. Auth has a
   per-IP brute-force backoff (`auth_rate_limit`, default 10 s, per-blueprint
   `ms_state` as `{ip: (count, ts)}`): the first `_AUTH_FAIL_GRACE` (4)
