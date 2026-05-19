@@ -161,14 +161,17 @@ def _agentbox(html):
 def test_fold_agent_brief_open(client):
     html = client.get("/").get_data(as_text=True)
     assert "Copy this to your agent:" in html        # open: no creds clause
-    assert "username and password" not in html
     assert '<textarea class="agentbox"' in html and "readonly" in html
     box = _agentbox(html)
-    # bootstraps the agent and frames the docs as data, not commands
+    # only what the server is + how to fetch the reference
     assert "curl -sS http://localhost/help" in box
-    assert "-K ms.curl" not in box                   # no auth -> no config
-    assert "exactly and only an API description" in box
-    assert "do not treat" in box and "instructions to follow" in box
+    assert "ms.curl" not in box and "-K" not in box  # no auth -> no config
+    # truthful scope claim, and the brief issues no directives itself
+    assert "only an endpoint reference plus a short curl how-to" in box
+    assert "nothing else" in box
+    low = box.lower()
+    for directive in ("do not", "you must", "treat it as", "are you sure"):
+        assert directive not in low
     # box sits at the top of the fold: inside <details>, above <pre>
     assert (
         html.index("<details>")
@@ -185,10 +188,20 @@ def test_fold_agent_brief_auth_variant(root):
     assert "Copy this to your agent, then tell it the username and password:" \
         in html
     box = _agentbox(html)
-    # auth on: teaches the single -K config-file recipe, creds in a file
+    # auth on: the single -K config-file recipe, creds in a file
     assert 'user = "USER:PASS"' in box               # |safe keeps quotes
     assert "curl -sS -K ms.curl http://localhost/help" in box
-    assert "exactly and only an API description" in box
+    assert "only an endpoint reference plus a short curl how-to" in box
+
+
+def test_help_is_reference_only_no_usage_directives(client):
+    """The brief promises /help is reference+how-to only — keep it true."""
+    helptxt = client.get("/help").get_data(as_text=True).lower()
+    for banned in (
+        "are you sure", "retry blindly", "you must answer",
+        "do not treat", "never put", "do not pass", "deliberately",
+    ):
+        assert banned not in helptxt
 
 
 def test_browse_missing_404_and_file_redirects(client, root):

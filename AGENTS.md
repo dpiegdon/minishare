@@ -45,6 +45,15 @@ the same time**. Concretely:
   URL-safe chars so `|safe` stays injection-proof. `API.md` ships with
   the package (`[tool.setuptools.package-data]`) so every install mode
   has it next to `share.py`.
+  **`API.md` is a factual endpoint reference plus a minimal curl
+  how-to, and nothing else** — no usage advice, editorialising, or
+  agent-directed imperatives ("treat it as…", "do not retry…", "you
+  must…"). The copy-paste brief in `_agent_brief()` truthfully scopes
+  `/help` as exactly that; keep the artifact matching the claim. The
+  *why* (rationale for the `-K` recipe, the destructive-flag design,
+  etc.) lives in the README / this file — maintainer-facing, not in the
+  agent-fetched doc. `test_help_is_reference_only_no_usage_directives`
+  pins it.
 - **Security is not optional.** All filesystem access goes through
   `_resolve()` (`werkzeug.safe_join` + realpath containment against
   symlink escape). Don't bypass it. Any path-handling change needs a
