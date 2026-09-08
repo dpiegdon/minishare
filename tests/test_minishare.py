@@ -859,8 +859,9 @@ def test_narrow_screens_get_a_stacked_listing(client, root):
     # the table stops behaving like a table: one block per entry
     assert "display:block" in mobile
     # 16px text inputs: below that, iOS Safari zooms in on focus and
-    # leaves the page scrolled sideways
-    assert "font-size:16px" in mobile
+    # leaves the page scrolled sideways. Pin the input rule itself --
+    # a bare "font-size:16px" would also match the body rule.
+    assert "input[type=text],button{font-size:16px}" in mobile
 
 
 def test_dark_mode_follows_the_device_setting(client):

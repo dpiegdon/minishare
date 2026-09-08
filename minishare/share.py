@@ -409,8 +409,8 @@ _PAGE = """<!doctype html>
      right. Nothing here is required for the page to work - it only
      reflows what is already there, so JS-off and no-CSS both survive. */
   @media (max-width: 40rem) {
-    body{margin:1rem auto;padding:0 .75rem;font-size:15px}
-    h1{font-size:1rem;overflow-wrap:anywhere}
+    body{margin:1rem auto;padding:0 .75rem;font-size:16px}
+    h1{overflow-wrap:anywhere}   /* keeps the desktop 1.1rem: body is 16px here */
     table,tbody{display:block}
     table{margin:.5rem 0}
     table tr:first-child{display:none}          /* the column headings */
@@ -423,7 +423,7 @@ _PAGE = """<!doctype html>
             overflow-wrap:anywhere}
     td.name a{display:inline-block;padding:.15rem 0}
     td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right}
-    td.r,td.mod{order:3;font-size:12px;color:var(--muted);text-align:left}
+    td.r,td.mod{order:3;font-size:13px;color:var(--muted);text-align:left}
     td.size.empty{display:none}                 /* dirs have no size */
     td.size:not(.empty)::after{content:" ·";color:var(--faint);padding:0 .15rem}
     /* 16px inputs: anything smaller makes iOS Safari zoom on focus */
@@ -431,7 +431,7 @@ _PAGE = """<!doctype html>
     input[type=checkbox]{width:1.15rem;height:1.15rem;vertical-align:middle}
     /* ~45px tap targets; #selall repeats to outrank the id rule above */
     details.menu>summary{font-size:1.35rem;line-height:1.5;padding:.4rem .7rem}
-    #selall{font-size:14px}
+    #selall{font-size:15px}
     .menupanel{width:min(16rem,76vw)}
     .menupanel input[type=text],.menupanel button{min-height:2.75rem}
     form#delform button{min-height:2.5rem}
@@ -440,6 +440,10 @@ _PAGE = """<!doctype html>
     .ops input[type=text],.ops input[type=file],.ops button{
       width:100%;box-sizing:border-box}
     .ops button{min-height:2.75rem;margin-top:.5rem}
+    /* the small print goes up a point too: the storage line and the
+       menu's field label are read on the phone, unlike the folded
+       machine docs, which stay at their monospace 12px */
+    .su,.menupanel label{font-size:13px}
     .hint{display:block;margin:.5rem 0 0}
   }
 </style>
