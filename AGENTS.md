@@ -148,6 +148,22 @@ the same time**. Concretely:
   zoom the page on focus and leave it scrolled sideways. Tap targets
   are ~45px. It is pure CSS — no JS, no second template, identical
   markup at both widths, so there is nothing extra to keep in sync.
+- **Theme follows the device.** Dark mode is one
+  `@media (prefers-color-scheme: dark)` block and nothing else: no
+  toggle, no cookie, no `localStorage`, no server-side state — so there
+  is no theme to persist, leak, or get out of sync, and a phone that
+  goes dark at night takes the page with it. Every colour in the
+  stylesheet comes from a custom property on `:root`, and the dark
+  block redefines *all* of them. A colour literal anywhere else fails
+  `test_no_colour_literal_outside_the_palette`, because that is exactly
+  how a dark theme rots — a new `color:#666` is invisible on a dark
+  ground and nothing else in the suite would notice.
+  `color-scheme:light dark` is load-bearing: without it the browser
+  keeps painting checkboxes, text inputs and scrollbars light. Dark
+  colours are re-picked, not inverted (`#06c` and `#c00` both go
+  unreadable on dark). This is human-only chrome, like the drag-drop
+  hint and `_agent_brief` — `API.md` gets nothing, deliberately; don't
+  "fix" that omission.
 - **Stable contracts (+ destructive-op guard).** `DELETE
   /delete/<path>` → `{"deleted":"<path>"}` (string); bulk `POST /delete`
   with `sel=` → `{"deleted":[...]}` (list); `POST /rename/<path>` with

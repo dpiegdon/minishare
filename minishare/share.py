@@ -338,42 +338,70 @@ _PAGE = """<!doctype html>
 <title>{{ title }} · /{{ subpath }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem}
+  /* Palette. Every colour in this stylesheet comes from one of these
+     variables, so the dark block below is the only place a theme is
+     defined - and adding a colour literal to a rule further down is a
+     test failure, not a surprise at 11pm. Dark mode follows the
+     device: no toggle, nothing stored, nothing sent to the server.
+     color-scheme makes the browser theme its own widgets (checkboxes,
+     text inputs, scrollbars) to match; without it a dark page gets
+     white controls stapled onto it. */
+  :root{
+    color-scheme:light dark;
+    --bg:#fff;          --fg:#000;            --fg-dim:#3a3a3a;
+    --muted:#666;       --faint:#aaa;         --line:#eee;
+    --line-strong:#ccc; --sunken:#f6f8fa;     --panel:#fff;
+    --hover:#e8eaed;    --accent:#06c;        --danger:#c00;
+    --shadow:rgba(0,0,0,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    /* Re-picked, not inverted: #06c and #c00 both go unreadable on a
+       dark ground, and the sunken panels have to become lighter than
+       the page rather than darker. */
+    :root{
+      --bg:#16181c;       --fg:#e6e8ea;         --fg-dim:#c3c7cc;
+      --muted:#9aa0a8;    --faint:#7d848c;      --line:#2a2e35;
+      --line-strong:#3a3f47; --sunken:#1c2027;  --panel:#21262d;
+      --hover:#2d333b;    --accent:#6cb0f5;     --danger:#ff7b72;
+      --shadow:rgba(0,0,0,.5);
+    }
+  }
+  body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem;background:var(--bg);color:var(--fg)}
   h1{font-size:1.1rem}
-  a{color:#06c;text-decoration:none}a:hover{text-decoration:underline}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
   table{border-collapse:collapse;width:100%;margin:1rem 0}
-  td,th{padding:.35rem .6rem;border-bottom:1px solid #eee;text-align:left}
-  th{font-weight:600;border-bottom:2px solid #ccc}
+  td,th{padding:.35rem .6rem;border-bottom:1px solid var(--line);text-align:left}
+  th{font-weight:600;border-bottom:2px solid var(--line-strong)}
   td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
   .dir{font-weight:600}
-  form{margin:1rem 0;padding:1rem;background:#f6f8fa;border-radius:6px}
+  form{margin:1rem 0;padding:1rem;background:var(--sunken);border-radius:6px}
   input[type=text]{padding:.25rem .4rem}
   .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
   .ops form{flex:1;margin:0;min-width:15rem}
   button:disabled{opacity:.45;cursor:not-allowed}
-  form.drop{outline:2px dashed #06c;outline-offset:-4px}
-  .hint{color:#000;font-weight:600;margin-left:.4rem}
+  form.drop{outline:2px dashed var(--accent);outline-offset:-4px}
+  .hint{color:var(--fg);font-weight:600;margin-left:.4rem}
   td.sel,th.sel{text-align:right;width:5.5rem;white-space:nowrap}
   #selall{font-size:12px}
   form#delform{display:flex;gap:.5rem;align-items:center;margin:0;padding:0;background:none}
   .bulk{margin:1rem 0 -.6rem}
   details.menu{display:inline-block;position:relative;margin:0}
-  details.menu>summary{list-style:none;display:inline-block;color:#444;font-size:1.1rem;line-height:1;padding:.2rem .45rem;border-radius:4px}
+  details.menu>summary{list-style:none;display:inline-block;color:var(--fg-dim);font-size:1.1rem;line-height:1;padding:.2rem .45rem;border-radius:4px}
   details.menu>summary::-webkit-details-marker{display:none}
-  details.menu>summary:hover{background:#e8eaed}
-  .menupanel{position:absolute;right:0;top:100%;z-index:5;width:16rem;padding:.6rem;text-align:left;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  details.menu>summary:hover{background:var(--hover)}
+  .menupanel{position:absolute;right:0;top:100%;z-index:5;width:16rem;padding:.6rem;text-align:left;background:var(--panel);border:1px solid var(--line-strong);border-radius:6px;box-shadow:0 2px 8px var(--shadow)}
   .menupanel form{margin:0;padding:0;background:none}
-  .menupanel form+form{margin-top:.5rem;padding-top:.5rem;border-top:1px solid #eee}
-  .menupanel label{display:block;font-size:12px;color:#666}
+  .menupanel form+form{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--line)}
+  .menupanel label{display:block;font-size:12px;color:var(--muted)}
   .menupanel input[type=text]{width:100%;box-sizing:border-box;margin:.2rem 0 .4rem}
-  button.danger{color:#c00}
+  button.danger{color:var(--danger)}
   details{margin:.5rem 0}
-  summary{color:#aaa;font-size:12px;cursor:pointer}
-  .tip{font-size:12px;margin:.4rem 0 .25rem;color:#444}
-  .agentbox{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace;color:#333;background:#f6f8fa;border:1px solid #ddd;border-radius:4px;padding:.5rem;margin:.4rem 0 0}
-  pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
-  .crumb{color:#666}
-  .su{color:#888;font-size:12px;margin:-.4rem 0 .8rem}
+  summary{color:var(--faint);font-size:12px;cursor:pointer}
+  .tip{font-size:12px;margin:.4rem 0 .25rem;color:var(--fg-dim)}
+  .agentbox{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace;color:var(--fg-dim);background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:.5rem;margin:.4rem 0 0}
+  pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:.4rem 0 0}
+  .crumb{color:var(--muted)}
+  .su{color:var(--muted);font-size:12px;margin:-.4rem 0 .8rem}
 
   /* Phones. The listing stops behaving like a table: one block per
      entry, filename on its own line and size + date as a small meta
@@ -387,7 +415,7 @@ _PAGE = """<!doctype html>
     table{margin:.5rem 0}
     table tr:first-child{display:none}          /* the column headings */
     tr{display:flex;flex-wrap:wrap;align-items:flex-start;
-       padding:.5rem 0;border-bottom:1px solid #eee}
+       padding:.5rem 0;border-bottom:1px solid var(--line)}
     td{display:block;border:0;padding:0}
     td:empty{display:none}
     /* line 1 is exactly full, so the meta cells always wrap under it */
@@ -395,9 +423,9 @@ _PAGE = """<!doctype html>
             overflow-wrap:anywhere}
     td.name a{display:inline-block;padding:.15rem 0}
     td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right}
-    td.r,td.mod{order:3;font-size:12px;color:#666;text-align:left}
+    td.r,td.mod{order:3;font-size:12px;color:var(--muted);text-align:left}
     td.size.empty{display:none}                 /* dirs have no size */
-    td.size:not(.empty)::after{content:" ·";color:#bbb;padding:0 .15rem}
+    td.size:not(.empty)::after{content:" ·";color:var(--faint);padding:0 .15rem}
     /* 16px inputs: anything smaller makes iOS Safari zoom on focus */
     input[type=text],button{font-size:16px}
     input[type=checkbox]{width:1.15rem;height:1.15rem;vertical-align:middle}

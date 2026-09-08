@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,29 @@ def client(root):
 def auth_header(user, pw):
     raw = base64.b64encode(f"{user}:{pw}".encode()).decode()
     return {"Authorization": f"Basic {raw}"}
+
+
+def css_of(html):
+    """The page's stylesheet."""
+    return html.split("<style>", 1)[1].split("</style>", 1)[0]
+
+
+def css_block(css, marker):
+    """The text from ``marker`` up to its matching closing brace."""
+    i = css.index(marker)
+    depth = 0
+    for k in range(css.index("{", i), len(css)):
+        if css[k] == "{":
+            depth += 1
+        elif css[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return css[i:k + 1]
+    raise AssertionError(f"unbalanced CSS after {marker!r}")
+
+
+def palette_names(block):
+    return set(re.findall(r"(--[a-z0-9-]+)\s*:", block))
 
 
 def upload(client, field_files, url="/upload/"):
@@ -677,8 +701,6 @@ def test_rename_is_documented_for_agents(client):
 def test_docs_never_show_a_plaintext_password_as_an_auth_value(client):
     """`auth` takes hashes only, so an example with a plaintext value is
     an example that raises ValueError. Keep every one of them runnable."""
-    import re
-
     repo = Path(minishare.__file__).parent.parent
     pat = re.compile(
         r"""(?:-a\s+|auth=\{["'])[\w.-]+["']?:\s*["']?([^"'\s,}]+)"""
@@ -818,6 +840,42 @@ def test_narrow_screens_get_a_stacked_listing(client, root):
     # 16px text inputs: below that, iOS Safari zooms in on focus and
     # leaves the page scrolled sideways
     assert "font-size:16px" in mobile
+
+
+def test_dark_mode_follows_the_device_setting(client):
+    """No button and nothing stored: the OS setting is the whole input."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    # native widgets (checkboxes, inputs, scrollbars) must follow too,
+    # else a dark page gets white controls stapled onto it
+    assert re.search(r"color-scheme:\s*light\s+dark", css)
+    assert "@media (prefers-color-scheme: dark)" in css
+
+
+def test_dark_block_redefines_every_palette_variable(client):
+    """A variable left out keeps its light value on a dark background."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    light = palette_names(css_block(css, ":root{"))
+    dark = palette_names(css_block(css, "@media (prefers-color-scheme: dark)"))
+    assert light, "no palette variables defined on :root"
+    assert not light - dark, f"not redefined for dark: {sorted(light - dark)}"
+    assert not dark - light, f"dark-only variables: {sorted(dark - light)}"
+
+
+def test_no_colour_literal_outside_the_palette(client):
+    """Every colour goes through a variable, or dark mode rots quietly:
+    a `color:#666` added to some new rule is simply invisible on a dark
+    page, and nothing else in the suite would notice."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    rest = css.replace(css_block(css, ":root{"), "")
+    rest = rest.replace(
+        css_block(rest, "@media (prefers-color-scheme: dark)"), ""
+    )
+    hits = re.findall(
+        r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b"
+        r"|\b(?:rgba?|hsla?)\(",
+        rest,
+    )
+    assert not hits, f"hard-coded colours outside the palette: {hits}"
 
 
 def test_listing_cells_are_addressable_for_the_stacked_layout(client, root):

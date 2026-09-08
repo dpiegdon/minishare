@@ -91,7 +91,8 @@ The browser UI covers browse, download, multi-select/drag-drop upload,
 create folder, checkbox delete, and a per-row `⋯` menu to rename/move
 or delete that one entry. On a phone the listing reflows to one block
 per entry — name, then size and date underneath, checkbox and `⋯` to
-the right.
+the right. It follows your device's light/dark setting; there is no
+theme switch and nothing is stored.
 
 The same actions are documented endpoints for agents and scripts in
 **[API.md](minishare/API.md)** — the single source, served verbatim
