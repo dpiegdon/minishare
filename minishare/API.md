@@ -37,6 +37,7 @@ View inline:        GET    $BASE/get/$path?inline=1
 Upload (multipart): POST   $BASE/upload[/$dir]    field name: file
 Upload (raw body):  PUT    $BASE/put/$path        body = file contents
 Make a directory:   POST   $BASE/mkdir/$path      (mkdir -p)
+Rename or move:     POST   $BASE/rename/$path     to=$newpath
 Delete file/dir:    DELETE $BASE/delete/$path
                     (bulk: POST $BASE/delete with repeated sel=$path)
 This help (text):   GET    $BASE/help
@@ -45,8 +46,9 @@ This help (text):   GET    $BASE/help
 Destructive operations require an explicit flag, else `409`:
 
 ```
-Overwrite a file:   ?overwrite=1   PUT or multipart upload onto an
-                                   existing file (otherwise 409).
+Overwrite a file:   ?overwrite=1   PUT, multipart upload, or rename
+                                   onto an existing file (otherwise
+                                   409).
 Delete a tree:      ?recursive=1   a NON-EMPTY directory (otherwise
                                    409). A file or empty directory
                                    needs no flag.
@@ -77,6 +79,10 @@ curl -sS -T report.pdf '$BASE/put/docs/report.pdf'
 # create a directory (parents included)
 curl -sS -X POST '$BASE/mkdir/docs/2026'
 
+# rename in place, or move: 'to' is a path relative to the share root
+curl -sS -X POST '$BASE/rename/report.pdf' -d 'to=final.pdf'
+curl -sS -X POST '$BASE/rename/final.pdf' -d 'to=docs/2026/final.pdf'
+
 # delete a file or an empty directory
 curl -sS -X DELETE '$BASE/delete/docs/note.txt'
 
@@ -88,6 +94,12 @@ curl -sS -X DELETE '$BASE/delete/docs/old-stuff?recursive=1'
 
 * PUT creates missing parent directories; replacing an existing file
   needs ?overwrite=1 (multipart upload too), else 409.
+* rename takes to=$newpath, a path relative to the share root: a
+  value without a "/" renames in place, one naming another directory
+  moves the entry there. The destination's parent directory must
+  already exist - rename does not create it (404), unlike PUT.
+  Replacing an existing file needs ?overwrite=1; a directory is never
+  replaced, flag or not, so pick a free name.
 * mkdir is idempotent. Deleting a non-empty directory needs
   ?recursive=1, else 409 (nothing is deleted; bulk delete is
   all-or-nothing). A file or empty directory needs no flag.

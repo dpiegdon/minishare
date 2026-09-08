@@ -6,7 +6,8 @@ changing this repo. Read this before editing; keep it true after editing.
 ## What this is
 
 `minishare` — a deliberately small Flask **blueprint** file-sharing
-server: browse / download / upload / mkdir / delete. Two ways to run it:
+server: browse / download / upload / mkdir / rename / delete. Two ways
+to run it:
 standalone (`python -m minishare`) or embedded as a git submodule
 (`app.register_blueprint(make_blueprint(...))`). See `README.md`.
 
@@ -88,10 +89,15 @@ the same time**. Concretely:
   login breaks; a correct login clears the IP; entries idle past the
   advised wait are purged every pass so the map stays small.
   Destructive ops fail closed via `_flag()`: a non-empty-directory
-  `DELETE` needs `?recursive=1` and clobbering a file (PUT *or*
-  multipart upload) needs `?overwrite=1`, else `409` and nothing is
+  `DELETE` needs `?recursive=1` and clobbering a file (PUT, multipart
+  upload *or* `rename`) needs `?overwrite=1`, else `409` and nothing is
   written/removed (bulk delete stays all-or-nothing) — a deliberate
-  prompt-injection / fat-finger speed bump. The browser forms supply
+  prompt-injection / fat-finger speed bump. `rename` additionally
+  refuses to replace a **directory** at all (flag or not — that would
+  discard a whole tree in one request) and, unlike `PUT`, does *not*
+  `mkdir -p` its destination: a missing parent is a `404` pointing at
+  `/mkdir`, because renaming into a non-existent folder is far more
+  often a typo than an intent. The browser forms supply
   these flags themselves, so it's agent-facing only. Don't regress
   those.
 - **Blueprint factory; integrator registers it.** `make_blueprint(...)`
@@ -118,14 +124,27 @@ the same time**. Concretely:
   with no proxy. Downloads, deletes and mkdir always work; pages show a
   small `storage:` indicator.
 - **Progressive enhancement.** JS only *enhances* (disable buttons until
-  valid, drag-and-drop). The app must remain usable with JS off; never
-  hard-disable a control in markup.
+  valid, drag-and-drop, confirm dialogs, closing a row menu). The app
+  must remain usable with JS off; never hard-disable a control in
+  markup. The per-row `⋯` menu is therefore a plain `<details>` holding
+  real `<form>`s, which is *only* legal because the bulk-delete form no
+  longer wraps the table: nested forms are dropped by the HTML parser,
+  so `#delform` stands alone and the row checkboxes join it with
+  `form="delform"` (`test_bulk_form_is_standalone_so_row_forms_are_valid_html`
+  pins this). Consequence for the JS: the checkboxes are not descendants
+  of that form, so query the *document*, never `form.querySelectorAll`.
+  A filename never goes into JS source — the row-delete confirm reads it
+  from `data-name`, so a quote in a name can't break the handler.
 - **Stable contracts (+ destructive-op guard).** `DELETE
   /delete/<path>` → `{"deleted":"<path>"}` (string); bulk `POST /delete`
-  with `sel=` → `{"deleted":[...]}` (list). Agents get JSON, browsers
-  redirect. Destructive intent must be explicit: a non-empty-dir delete
-  needs `?recursive=1`, overwriting an existing file (PUT/upload) needs
-  `?overwrite=1`; otherwise `409` (parsed by `_flag()`, handler
+  with `sel=` → `{"deleted":[...]}` (list); `POST /rename/<path>` with
+  `to=` (a path relative to the share root) →
+  `{"renamed":"<from>","to":"<to>"}` — one field does both rename and
+  move, so the browser's text box and the agent's parameter are
+  literally the same thing. Agents get JSON, browsers redirect.
+  Destructive intent must be explicit: a non-empty-dir delete needs
+  `?recursive=1`, overwriting an existing file (PUT / upload / rename)
+  needs `?overwrite=1`; otherwise `409` (parsed by `_flag()`, handler
   registered for `409`). This was a *deliberate* break of the older
   "delete is always recursive / PUT always overwrites" behaviour — keep
   it; the safety > the smoothness here. Don't break any of this.
@@ -152,10 +171,16 @@ the same time**. Concretely:
 ## Run / test
 
 ```bash
-pip install -e ".[dev]"
-python -m minishare -p 8000      # dev server (no autoreload w/o --debug)
-pytest                           # full suite
+make test                        # bootstraps .venv, runs the full suite
+make run                         # dev server (override PORT= / DIR=)
+make clean                       # drop .venv and caches
 ```
+
+`make test` is the definition of done. The venv is a directory target
+with `pyproject.toml` as its prerequisite, so it rebuilds only when the
+dependency declaration changes. By hand it is still
+`pip install -e ".[dev]"` + `pytest`; `python -m minishare -p 8000`
+still runs the server (no autoreload without `--debug`).
 
 ## Gotchas / lessons learned
 

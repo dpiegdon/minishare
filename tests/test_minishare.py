@@ -420,6 +420,129 @@ def test_browser_forms_carry_destructive_flags(client, root):
     assert not (root / "tree").exists()
 
 
+
+# --------------------------------------------------------------------------- #
+# Rename / move
+# --------------------------------------------------------------------------- #
+def test_rename_file_in_place(client, root):
+    (root / "old.txt").write_text("body")
+    r = client.post("/rename/old.txt", data={"to": "new.txt"})
+    assert r.status_code == 200
+    assert r.get_json() == {"renamed": "old.txt", "to": "new.txt"}
+    assert not (root / "old.txt").exists()
+    assert (root / "new.txt").read_text() == "body"
+
+
+def test_rename_directory(client, root):
+    (root / "old").mkdir()
+    (root / "old" / "keep.txt").write_text("k")
+    r = client.post("/rename/old", data={"to": "new"})
+    assert r.status_code == 200
+    assert (root / "new" / "keep.txt").read_text() == "k"
+
+
+def test_rename_moves_into_another_directory(client, root):
+    (root / "docs").mkdir()
+    (root / "note.txt").write_text("n")
+    r = client.post("/rename/note.txt", data={"to": "docs/note.txt"})
+    assert r.status_code == 200
+    assert r.get_json()["to"] == "docs/note.txt"
+    assert (root / "docs" / "note.txt").read_text() == "n"
+
+
+def test_rename_accepts_query_arg_like_other_flags(client, root):
+    (root / "a.txt").write_text("a")
+    assert client.post("/rename/a.txt?to=b.txt").status_code == 200
+    assert (root / "b.txt").exists()
+
+
+def test_rename_browser_redirects_to_destination_dir(client, root):
+    (root / "docs").mkdir()
+    (root / "a.txt").write_text("a")
+    r = client.post("/rename/a.txt", data={"to": "docs/b.txt"},
+                    headers={"Accept": "text/html"})
+    assert r.status_code in (301, 302)
+    assert r.headers["Location"].endswith("/browse/docs")
+
+
+# --- guards: nothing is clobbered or lost without an explicit flag ---------- #
+def test_rename_onto_existing_file_needs_overwrite(client, root):
+    (root / "a.txt").write_text("a")
+    (root / "b.txt").write_text("b")
+    r = client.post("/rename/a.txt", data={"to": "b.txt"})
+    assert r.status_code == 409
+    assert "?overwrite=1" in r.get_data(as_text=True)
+    assert (root / "a.txt").read_text() == "a"   # nothing moved
+    assert (root / "b.txt").read_text() == "b"   # nothing clobbered
+    r = client.post("/rename/a.txt?overwrite=1", data={"to": "b.txt"})
+    assert r.status_code == 200
+    assert (root / "b.txt").read_text() == "a"
+    assert not (root / "a.txt").exists()
+
+
+def test_rename_onto_existing_directory_refused_even_with_overwrite(
+    client, root
+):
+    (root / "a.txt").write_text("a")
+    (root / "d").mkdir()
+    for url in ("/rename/a.txt", "/rename/a.txt?overwrite=1"):
+        assert client.post(url, data={"to": "d"}).status_code == 409
+    assert (root / "a.txt").exists() and (root / "d").is_dir()
+
+
+def test_rename_missing_source_404(client):
+    r = client.post("/rename/nope.txt", data={"to": "x"})
+    assert r.status_code == 404
+    # the handler's own message, not Flask's generic no-such-route 404
+    assert "No such path: nope.txt" in r.get_data(as_text=True)
+
+
+def test_rename_to_missing_parent_404_not_mkdir_p(client, root):
+    """Unlike PUT, rename does not create parents: a bad path is a typo."""
+    (root / "a.txt").write_text("a")
+    r = client.post("/rename/a.txt", data={"to": "nodir/a.txt"})
+    assert r.status_code == 404
+    assert "mkdir" in r.get_data(as_text=True)
+    assert (root / "a.txt").exists()
+    assert not (root / "nodir").exists()
+
+
+def test_rename_into_a_file_as_directory_400(client, root):
+    """A file standing where a directory was expected: say so, not 404."""
+    (root / "a.txt").write_text("a")
+    (root / "notadir").write_text("f")
+    r = client.post("/rename/a.txt", data={"to": "notadir/a.txt"})
+    assert r.status_code == 400
+    assert "not a directory" in r.get_data(as_text=True).lower()
+    assert (root / "a.txt").exists()
+
+
+def test_rename_empty_or_root_target_400(client, root):
+    (root / "a.txt").write_text("a")
+    assert client.post("/rename/a.txt", data={"to": ""}).status_code == 400
+    assert client.post("/rename/a.txt", data={"to": "/"}).status_code == 400
+    assert (root / "a.txt").exists()
+
+
+def test_rename_directory_into_itself_400(client, root):
+    (root / "d").mkdir()
+    (root / "d" / "sub").mkdir()
+    r = client.post("/rename/d", data={"to": "d/sub/d"})
+    assert r.status_code == 400
+    assert (root / "d" / "sub").is_dir()
+
+
+def test_rename_traversal_rejected_both_ends(client, root):
+    (root / "a.txt").write_text("a")
+    assert client.post(
+        "/rename/a.txt", data={"to": "../escaped.txt"}
+    ).status_code == 400
+    assert client.post(
+        "/rename/../outside.txt", data={"to": "b.txt"}
+    ).status_code in (400, 404)
+    assert (root / "a.txt").exists()
+    assert not (root.parent / "escaped.txt").exists()
+
 # --------------------------------------------------------------------------- #
 # Security: traversal + symlink
 # --------------------------------------------------------------------------- #
@@ -533,6 +656,15 @@ def test_docs_single_source_ascii_unescaped(client):
     assert "$path" in pre and "<path>" not in pre
 
 
+def test_rename_is_documented_for_agents(client):
+    """Dual audience: a new endpoint ships with its machine path documented."""
+    helptxt = client.get("/help").get_data(as_text=True)
+    assert "/rename/" in helptxt
+    assert "to=" in helptxt                       # the field name
+    assert "does not create" in helptxt           # parent-must-exist rule
+    assert "?overwrite=1" in helptxt              # the guard, next to it
+
+
 def test_help_is_plain_text(client):
     r = client.get("/help")
     assert r.mimetype == "text/plain"
@@ -582,9 +714,56 @@ def test_delete_ui_is_multiselect(client, root):
     html = client.get("/").get_data(as_text=True)
     assert 'type="checkbox" name="sel" value="f.txt"' in html
     assert 'id="delbtn"' in html and 'id="delbtn" disabled' not in html
-    assert "\U0001f5d1" not in html  # old per-row trash button gone
+    # still no bare per-row icon button: a single row's destructive
+    # action lives behind the "..." menu (test_row_menu_offers_*)
+    assert "\U0001f5d1" not in html
     # select-all is a plain button (must not submit/trigger the delete form)
     assert '<button type="button" id="selall"' in html
+
+
+def test_row_menu_offers_rename_and_delete(client, root):
+    (root / "f.txt").write_text("x")
+    html = client.get("/").get_data(as_text=True)
+    assert '<details class="menu">' in html
+    # real forms: the menu works with JS off (JS only closes it again)
+    assert '<form method="post" action="/rename/f.txt">' in html
+    assert 'name="to" value="f.txt"' in html
+    # per-row delete carries the opt-in flag itself, like the bulk form
+    assert 'action="/delete/f.txt?recursive=1"' in html
+
+
+def test_row_menu_targets_directories_too(client, root):
+    (root / "d").mkdir()
+    html = client.get("/").get_data(as_text=True)
+    assert '<form method="post" action="/rename/d">' in html
+    assert 'name="to" value="d"' in html
+
+
+def test_rename_field_is_prefilled_with_the_full_path(client, root):
+    """The human field and the API field are the same field."""
+    (root / "docs").mkdir()
+    (root / "docs" / "n.txt").write_text("n")
+    html = client.get("/browse/docs").get_data(as_text=True)
+    assert 'name="to" value="docs/n.txt"' in html
+
+
+def test_bulk_form_is_standalone_so_row_forms_are_valid_html(client, root):
+    """Nested forms are dropped by the parser: rows can only hold forms
+    if the bulk-delete form does not wrap the table."""
+    (root / "f.txt").write_text("x")
+    html = client.get("/").get_data(as_text=True)
+    start = html.index('<form id="delform"')
+    assert html.index("</form>", start) < html.index("<table")
+    # the checkboxes join it by id instead of by nesting
+    assert 'name="sel" value="f.txt" form="delform"' in html
+
+
+def test_row_delete_confirm_keeps_filenames_out_of_js_source(client, root):
+    """An apostrophe in a name must not break the confirm handler."""
+    (root / "o'brien.txt").write_text("x")
+    html = client.get("/").get_data(as_text=True)
+    assert "confirm('Delete o'brien" not in html
+    assert 'data-name="o&#39;brien.txt"' in html
 
 
 def test_content_negotiation_json_variants(client, root):

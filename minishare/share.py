@@ -346,16 +346,26 @@ _PAGE = """<!doctype html>
   td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
   .dir{font-weight:600}
   form{margin:1rem 0;padding:1rem;background:#f6f8fa;border-radius:6px}
-  form.inline{display:inline;margin:0;padding:0;background:none}
-  form.inline button{border:0;background:none;cursor:pointer;font-size:1rem;color:#c00;padding:0}
   input[type=text]{padding:.25rem .4rem}
   .ops{display:flex;gap:1rem;margin:1rem 0;flex-wrap:wrap}
   .ops form{flex:1;margin:0;min-width:15rem}
   button:disabled{opacity:.45;cursor:not-allowed}
   form.drop{outline:2px dashed #06c;outline-offset:-4px}
   .hint{color:#000;font-weight:600;margin-left:.4rem}
-  td.sel,th.sel{text-align:center;width:8rem}
-  #selall{font-size:12px;margin-right:.3rem}
+  td.sel,th.sel{text-align:right;width:5.5rem;white-space:nowrap}
+  #selall{font-size:12px}
+  form#delform{display:flex;gap:.5rem;align-items:center;margin:0;padding:0;background:none}
+  .bulk{margin:1rem 0 -.6rem}
+  details.menu{display:inline-block;position:relative;margin:0}
+  details.menu>summary{list-style:none;display:inline-block;color:#444;font-size:1.1rem;line-height:1;padding:.2rem .45rem;border-radius:4px}
+  details.menu>summary::-webkit-details-marker{display:none}
+  details.menu>summary:hover{background:#e8eaed}
+  .menupanel{position:absolute;right:0;top:100%;z-index:5;width:16rem;padding:.6rem;text-align:left;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+  .menupanel form{margin:0;padding:0;background:none}
+  .menupanel form+form{margin-top:.5rem;padding-top:.5rem;border-top:1px solid #eee}
+  .menupanel label{display:block;font-size:12px;color:#666}
+  .menupanel input[type=text]{width:100%;box-sizing:border-box;margin:.2rem 0 .4rem}
+  button.danger{color:#c00}
   details{margin:.5rem 0}
   summary{color:#aaa;font-size:12px;cursor:pointer}
   .tip{font-size:12px;margin:.4rem 0 .25rem;color:#444}
@@ -379,30 +389,43 @@ _PAGE = """<!doctype html>
 </h1>
 <div class="su">storage: {{ storage_use }}</div>
 
-<form method="post" action="{{ delete_url }}" id="delform"
-      onsubmit="return confirm('Delete ' + this.querySelectorAll('input[name=sel]:checked').length + ' selected item(s)? Folders are deleted recursively. This cannot be undone.')">
+<div class="bulk">
+  <form id="delform" method="post" action="{{ delete_url }}">
+    <button type="button" id="selall" title="select / clear all">all</button>
+    <button type="submit" id="delbtn" title="delete the selected items">Delete</button>
+  </form>
+</div>
 <table>
-  <tr><th>Name</th><th class="r">Size</th><th>Modified</th>
-      <th class="sel">
-        <button type="button" id="selall" title="select / clear all">all</button>
-        <button type="submit" id="delbtn" title="delete the selected items">Delete</button>
-      </th></tr>
+  <tr><th>Name</th><th class="r">Size</th><th>Modified</th><th class="sel"></th></tr>
   {% if subpath %}
-  <tr><td class="dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td><td></td></tr>
+  <tr><td class="name dir"><a href="{{ parent_url }}">⬆ ..</a></td><td></td><td></td><td></td></tr>
   {% endif %}
   {% for e in entries %}
   <tr>
     {% if e.type == 'dir' %}
-      <td class="dir">📁 <a href="{{ url_for('.browse', subpath=e.path) }}">{{ e.name }}/</a></td>
-      <td class="r">—</td>
+      <td class="name dir">📁 <a href="{{ url_for('.browse', subpath=e.path) }}">{{ e.name }}/</a></td>
+      <td class="r size empty">—</td>
     {% else %}
-      <td>📄 <a href="{{ e.download }}">{{ e.name }}</a></td>
-      <td class="r">{{ human(e.size) }}</td>
+      <td class="name">📄 <a href="{{ e.download }}">{{ e.name }}</a></td>
+      <td class="r size">{{ human(e.size) }}</td>
     {% endif %}
-    <td>{{ e.modified }}</td>
+    <td class="mod">{{ e.modified }}</td>
     <td class="sel">
-      <input type="checkbox" name="sel" value="{{ e.path }}"
+      <input type="checkbox" name="sel" value="{{ e.path }}" form="delform"
              aria-label="select {{ e.name }}">
+      <details class="menu">
+        <summary aria-label="actions for {{ e.name }}" title="rename / delete">⋯</summary>
+        <div class="menupanel">
+          <form method="post" action="{{ url_for('.rename', subpath=e.path) }}">
+            <label>rename / move to
+            <input type="text" name="to" value="{{ e.path }}" required></label>
+            <button type="submit">Rename</button>
+          </form>
+          <form method="post" class="rowdel" data-name="{{ e.name }}" action="{{ url_for('.delete', subpath=e.path, recursive=1) }}">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </div>
+      </details>
     </td>
   </tr>
   {% endfor %}
@@ -410,7 +433,6 @@ _PAGE = """<!doctype html>
   <tr><td colspan="4"><em>empty directory</em></td></tr>
   {% endif %}
 </table>
-</form>
 
 <div class="ops">
   <form method="post" action="{{ mkdir_url }}">
@@ -452,18 +474,48 @@ _PAGE = """<!doctype html>
       all = document.getElementById('selall'),
       form = document.getElementById('delform');
   if (!btn || !form) return;
-  function sync() {
-    btn.disabled = !form.querySelector('input[name=sel]:checked');
+  // The checkboxes are not descendants of the form (they join it with
+  // form="delform" so that each row may hold its own forms), so query
+  // the document, not the form's subtree.
+  function boxes() { return document.querySelectorAll('input[name=sel]'); }
+  function checked() {
+    return document.querySelectorAll('input[name=sel]:checked').length;
   }
-  form.addEventListener('change', sync);
+  function sync() { btn.disabled = !checked(); }
+  document.addEventListener('change', sync);
   if (all) all.addEventListener('click', function () {
-    var boxes = form.querySelectorAll('input[name=sel]');
-    var every = boxes.length > 0;
-    boxes.forEach(function (b) { if (!b.checked) every = false; });
-    boxes.forEach(function (b) { b.checked = !every; });  // toggle select/clear
+    var bs = boxes(), every = bs.length > 0;
+    bs.forEach(function (b) { if (!b.checked) every = false; });
+    bs.forEach(function (b) { b.checked = !every; });  // toggle select/clear
     sync();
   });
+  form.addEventListener('submit', function (e) {
+    if (!confirm('Delete ' + checked() + ' selected item(s)? Folders are '
+                 + 'deleted recursively. This cannot be undone.')) {
+      e.preventDefault();
+    }
+  });
   sync();   // progressive enhancement: only JS disables the button
+})();
+(function () {
+  // Row menus. They are plain <details>, so they open and their forms
+  // submit with JS off; this only adds the confirm prompt and closes a
+  // menu when you click elsewhere. The name is read from a data
+  // attribute, never interpolated into JS source, so a quote in a
+  // filename cannot break the handler.
+  document.querySelectorAll('form.rowdel').forEach(function (f) {
+    f.addEventListener('submit', function (e) {
+      if (!confirm('Delete ' + f.dataset.name + '? A folder is deleted '
+                   + 'with everything in it. This cannot be undone.')) {
+        e.preventDefault();
+      }
+    });
+  });
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details.menu[open]').forEach(function (d) {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
 })();
 </script>
 """
@@ -858,6 +910,90 @@ def mkdir(subpath: str = ""):
     return _respond({"created": _rel(full)}, parent, 201)
 
 
+def rename(subpath: str):
+    """Rename or move ``subpath`` to ``to`` (a path relative to the root).
+
+    One field does both jobs: a ``to`` without a slash renames in place,
+    a ``to`` naming another directory moves the entry there. Both ends
+    go through :func:`_resolve`, so neither the source nor the
+    destination can escape the share root.
+
+    Fails closed, like the other destructive ops:
+
+    * an existing destination **file** needs ``?overwrite=1`` (else 409);
+    * an existing destination **directory** is never replaced, flag or
+      not — that would discard a whole tree in one request;
+    * the destination's parent must already exist (404). Deliberately
+      unlike ``PUT``, which does ``mkdir -p``: uploading into a fresh
+      tree is a normal intent, but renaming into a non-existent folder
+      is far more often a typo, and this way it costs nothing.
+    """
+    src_rel = subpath.strip("/")
+    if not src_rel:
+        abort(400, description="The share root cannot be renamed")
+    src = _resolve(src_rel)
+    if not os.path.exists(src):
+        abort(404, description=f"No such path: {src_rel}")
+
+    dest_rel = (request.values.get("to") or "").strip().strip("/")
+    if not dest_rel:
+        abort(
+            400,
+            description="No destination given - send 'to=$newpath'",
+        )
+    dest = _resolve(dest_rel)
+
+    parent = os.path.dirname(dest)
+    if os.path.exists(parent) and not os.path.isdir(parent):
+        abort(
+            400,
+            description=(
+                f"'{_rel(parent)}' is not a directory, so nothing can be "
+                "renamed into it."
+            ),
+        )
+    if not os.path.isdir(parent):
+        abort(
+            404,
+            description=(
+                f"Destination directory '{_rel(parent)}' does not exist - "
+                "create it first with POST /mkdir/$dir."
+            ),
+        )
+
+    # A directory cannot swallow itself; os.replace would fail late and
+    # opaquely, so say it plainly first.
+    real_src, real_dest = os.path.realpath(src), os.path.realpath(dest)
+    if os.path.isdir(src) and real_dest.startswith(real_src + os.sep):
+        abort(
+            400,
+            description=f"Cannot move '{src_rel}' into itself",
+        )
+
+    if os.path.exists(dest):
+        if os.path.isdir(dest) or os.path.isdir(src):
+            abort(
+                409,
+                description=(
+                    f"'{dest_rel}' already exists and one of the two is a "
+                    "directory; a directory is never replaced, not even "
+                    "with ?overwrite=1. Choose a free name."
+                ),
+            )
+        if not _flag("overwrite"):
+            abort(
+                409,
+                description=(
+                    f"'{dest_rel}' already exists - this would overwrite "
+                    "it. Re-send with ?overwrite=1 to confirm."
+                ),
+            )
+
+    os.replace(src, dest)
+    here = dest_rel.rsplit("/", 1)[0] if "/" in dest_rel else ""
+    return _respond({"renamed": src_rel, "to": dest_rel}, here)
+
+
 def delete(subpath: str = ""):
     """Delete file(s)/directory(ies).
 
@@ -1030,6 +1166,9 @@ def make_blueprint(
     bp.add_url_rule("/put/<path:subpath>", "put", put, methods=["PUT"])
     for rule in ("/mkdir", "/mkdir/", "/mkdir/<path:subpath>"):
         bp.add_url_rule(rule, "mkdir", mkdir, methods=["POST"])
+    bp.add_url_rule(
+        "/rename/<path:subpath>", "rename", rename, methods=["POST"]
+    )
     for rule in ("/delete", "/delete/", "/delete/<path:subpath>"):
         bp.add_url_rule(rule, "delete", delete, methods=["POST", "DELETE"])
     bp.add_url_rule("/help", "help_text", help_text)

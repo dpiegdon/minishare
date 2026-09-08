@@ -1,13 +1,13 @@
 # minishare
 
 A minimal Flask **blueprint** file-sharing server: browse, download,
-upload, create and delete (files & directories) — usable by **both
-humans and agents**. The full API lives in one place (`_api_doc`),
-served at `GET /help` and folded into the top of every page, so an agent
-doing `curl /` sees it immediately. Any listing can be requested as JSON
-(`?format=json`); mutating endpoints answer agents with JSON and browsers
-with a redirect. Optional per-upload / total-storage caps; every page
-shows a small `storage:` indicator.
+upload, rename/move, create and delete (files & directories) — usable
+by **both humans and agents**. The full API lives in one place
+(`_api_doc`), served at `GET /help` and folded into the top of every
+page, so an agent doing `curl /` sees it immediately. Any listing can
+be requested as JSON (`?format=json`); mutating endpoints answer agents
+with JSON and browsers with a redirect. Optional per-upload /
+total-storage caps; every page shows a small `storage:` indicator.
 
 ## Run standalone
 
@@ -71,8 +71,9 @@ python -m minishare.hashpw
 
 Hashes are verified with `check_password_hash` (the KDF runs per
 request, so a costly hash trades CPU for not storing the password).
-There are no roles — plain all-or-nothing access. The first 4 wrong-credential attempts from an IP
-just get `401` (browsers retry on a normal login); past that the IP is
+There are no roles — plain all-or-nothing access. The first 4
+wrong-credential attempts from an IP just get `401` (browsers retry on
+a normal login); past that the IP is
 blocked hard for `auth_rate_limit` seconds (default `10`) — further
 credentialed attempts get a `429` advising a ~15 s wait, with no
 password check. A correct login clears the IP; no-credential challenge
@@ -84,8 +85,9 @@ them into shell history and `ps`); `GET /help` documents a curl-config
 
 ## API
 
-Browsers get a full UI (browse, download, multi-select/drag-drop upload,
-create folder, checkbox delete). The same actions are documented
+Browsers get a full UI: browse, download, multi-select/drag-drop
+upload, create folder, checkbox delete, and a per-row `⋯` menu to
+rename/move or delete that one entry. The same actions are documented
 endpoints for agents/scripts in **[API.md](minishare/API.md)** — the
 single source, served verbatim (with the live base URL) at `GET /help`
 and folded into the top of every page.
@@ -101,8 +103,8 @@ cross-origin (curl/agents send no `Origin`/`Referer` and are unaffected).
 Size caps are enforced on bytes actually received (streamed `PUT`,
 rolled-back oversize multipart), so they hold without a proxy.
 Destructive ops fail closed: recursively deleting a non-empty directory
-needs `?recursive=1` and overwriting an existing file (PUT or multipart
-upload) needs `?overwrite=1`, else `409` — so a stray or
+needs `?recursive=1` and overwriting an existing file (PUT, multipart
+upload, or rename) needs `?overwrite=1`, else `409` — so a stray or
 injection-nudged agent request can't silently nuke a tree or clobber a
 file (the browser forms pass these flags, so the human UX is unchanged).
 
@@ -115,9 +117,11 @@ per-IP backoff is per-process / per-`remote_addr` — behind a proxy apply
 ## Tests / layout
 
 ```bash
-pip install -e ".[dev]"   # Flask + pytest
-pytest
+make test                 # creates .venv from pyproject.toml, runs pytest
+make run                  # dev server (override PORT= and DIR=)
 ```
+
+or by hand: `pip install -e ".[dev]" && pytest`.
 
 `minishare/__init__.py` (public API), `minishare/share.py`
 (`make_blueprint` + all routes), `minishare/cli.py` (runner),
