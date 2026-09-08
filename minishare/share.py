@@ -1016,9 +1016,10 @@ def rename(subpath: str):
             abort(
                 409,
                 description=(
-                    f"'{dest_rel}' already exists and one of the two is a "
-                    "directory; a directory is never replaced, not even "
-                    "with ?overwrite=1. Choose a free name."
+                    f"'{dest_rel}' already exists and a directory is "
+                    "involved - rename never replaces a directory, nor "
+                    "replaces a file with one, not even with "
+                    "?overwrite=1. Choose a name that is free."
                 ),
             )
         if not _flag("overwrite"):

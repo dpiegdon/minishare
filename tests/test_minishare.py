@@ -480,14 +480,23 @@ def test_rename_onto_existing_file_needs_overwrite(client, root):
     assert not (root / "a.txt").exists()
 
 
-def test_rename_onto_existing_directory_refused_even_with_overwrite(
+def test_rename_refuses_whenever_a_directory_would_be_replaced(
     client, root
 ):
+    """Neither direction: a tree is never lost to a single request."""
     (root / "a.txt").write_text("a")
     (root / "d").mkdir()
+    (root / "d" / "keep.txt").write_text("k")
     for url in ("/rename/a.txt", "/rename/a.txt?overwrite=1"):
-        assert client.post(url, data={"to": "d"}).status_code == 409
-    assert (root / "a.txt").exists() and (root / "d").is_dir()
+        r = client.post(url, data={"to": "d"})          # file onto dir
+        assert r.status_code == 409
+        assert "never replaces a directory" in r.get_data(as_text=True)
+    for url in ("/rename/d", "/rename/d?overwrite=1"):
+        r = client.post(url, data={"to": "a.txt"})      # dir onto file
+        assert r.status_code == 409
+        assert "never replaces a directory" in r.get_data(as_text=True)
+    assert (root / "a.txt").read_text() == "a"
+    assert (root / "d" / "keep.txt").read_text() == "k"
 
 
 def test_rename_missing_source_404(client):
