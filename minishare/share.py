@@ -415,7 +415,7 @@ _PAGE = """<!doctype html>
     table{margin:.5rem 0}
     table tr:first-child{display:none}          /* the column headings */
     tr{display:flex;flex-wrap:wrap;align-items:flex-start;
-       padding:.5rem 0;border-bottom:1px solid var(--line)}
+       padding:.2rem 0;border-bottom:1px solid var(--line)}
     td{display:block;border:0;padding:0}
     td:empty{display:none}
     /* line 1 is exactly full, so the meta cells always wrap under it */
@@ -425,9 +425,10 @@ _PAGE = """<!doctype html>
        makes the filename a comfortable tap target. */
     td.name{flex:0 1 calc(100% - 5.5rem);order:1;line-height:1.25;
             overflow-wrap:anywhere}
-    td.name a{display:inline-block;padding:.2rem 0}
-    td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right}
-    td.r,td.mod{order:3;font-size:13px;line-height:1.15;
+    td.name a{display:inline-block;padding:.05rem 0}
+    td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right;
+           line-height:1}
+    td.r,td.mod{order:3;font-size:13px;line-height:1.1;
                 color:var(--muted);text-align:left}
     td.size.empty{display:none}                 /* dirs have no size */
     td.size:not(.empty)::after{content:" ·";color:var(--faint);padding:0 .15rem}
@@ -435,7 +436,16 @@ _PAGE = """<!doctype html>
     input[type=text],button{font-size:16px}
     input[type=checkbox]{width:1.15rem;height:1.15rem;vertical-align:middle}
     /* ~45px tap targets; #selall repeats to outrank the id rule above */
-    details.menu>summary{font-size:1.35rem;line-height:1.5;padding:.4rem .7rem}
+    /* The "..." is the tallest thing on the row's first flex line, so
+       its box sets how tall every file row is. Keep it visually small
+       and put the tap target back with an invisible overlay: negative
+       insets on an absolutely-positioned ::after enlarge what you can
+       hit (~40px) without adding a pixel of layout height. This rule
+       draws nothing - it is not dead CSS. */
+    details.menu>summary{font-size:1.15rem;line-height:1.1;
+                         padding:.05rem .45rem;position:relative}
+    details.menu>summary::after{content:"";position:absolute;
+                                inset:-.55rem -.35rem}
     #selall{font-size:15px}
     .menupanel{width:min(16rem,76vw)}
     .menupanel input[type=text],.menupanel button{min-height:2.75rem}

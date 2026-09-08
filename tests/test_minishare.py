@@ -900,6 +900,22 @@ def test_no_colour_literal_outside_the_palette(client):
     assert not hits, f"hard-coded colours outside the palette: {hits}"
 
 
+def test_menu_button_keeps_an_oversized_hit_area_on_mobile(client):
+    """The "..." is visually small so it doesn't set the row height (it
+    is the tallest thing on the row's first flex line, so its box drives
+    how tall every file row is). Its *tap* area is restored by an
+    absolutely-positioned ::after with negative insets, which costs no
+    layout height. That rule renders nothing and is easy to mistake for
+    dead CSS -- deleting it silently shrinks the target to ~22px."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    mobile = css.split("@media (max-width: 40rem)", 1)[1]
+    rule = mobile.split("details.menu>summary::after", 1)
+    assert len(rule) == 2, "no oversized hit area for the '...' button"
+    body = rule[1].split("}", 1)[0]
+    assert "position:absolute" in body
+    assert "inset:-" in body, "insets must be negative to enlarge it"
+
+
 def test_listing_cells_are_addressable_for_the_stacked_layout(client, root):
     """The stacked layout needs to target size/modified individually."""
     (root / "f.txt").write_text("x")
