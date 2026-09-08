@@ -419,11 +419,16 @@ _PAGE = """<!doctype html>
     td{display:block;border:0;padding:0}
     td:empty{display:none}
     /* line 1 is exactly full, so the meta cells always wrap under it */
-    td.name{flex:0 1 calc(100% - 5.5rem);order:1;line-height:1.6;
+    /* The gap between the name and the meta line is pure half-leading
+       (the cells have no padding), so it comes off the line-heights.
+       The link keeps its own padding: that, not the leading, is what
+       makes the filename a comfortable tap target. */
+    td.name{flex:0 1 calc(100% - 5.5rem);order:1;line-height:1.25;
             overflow-wrap:anywhere}
-    td.name a{display:inline-block;padding:.15rem 0}
+    td.name a{display:inline-block;padding:.2rem 0}
     td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right}
-    td.r,td.mod{order:3;font-size:13px;color:var(--muted);text-align:left}
+    td.r,td.mod{order:3;font-size:13px;line-height:1.15;
+                color:var(--muted);text-align:left}
     td.size.empty{display:none}                 /* dirs have no size */
     td.size:not(.empty)::after{content:" ·";color:var(--faint);padding:0 .15rem}
     /* 16px inputs: anything smaller makes iOS Safari zoom on focus */
