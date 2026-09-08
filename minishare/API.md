@@ -1,6 +1,7 @@
 # minishare API
 
-A file server: browse, download, upload, make directories, delete.
+A file server: browse, download, upload, rename or move, make
+directories, delete.
 Add `?format=json` to any listing for a JSON response; mutating
 endpoints return JSON to non-browser clients and redirect browsers.
 This same text is served at `GET $BASE/help`.
@@ -72,8 +73,7 @@ curl -sS -O '$BASE/get/notes/todo.txt'
 # upload via multipart form into the 'docs' folder
 curl -sS -F file=@report.pdf '$BASE/upload/docs'
 
-# upload raw bytes to an exact path (parent dirs auto-created;
-# add ?overwrite=1 to replace an existing file, else 409)
+# upload raw bytes to an exact path (parent dirs auto-created)
 curl -sS -T report.pdf '$BASE/put/docs/report.pdf'
 
 # create a directory (parents included)
@@ -92,17 +92,14 @@ curl -sS -X DELETE '$BASE/delete/docs/old-stuff?recursive=1'
 
 ## Notes
 
-* PUT creates missing parent directories; replacing an existing file
-  needs ?overwrite=1 (multipart upload too), else 409.
-* rename takes to=$newpath, a path relative to the share root: a
-  value without a "/" renames in place, one naming another directory
-  moves the entry there. The destination's parent directory must
-  already exist - rename does not create it (404), unlike PUT.
-  Replacing an existing file needs ?overwrite=1; a directory is never
-  replaced, flag or not, so pick a free name.
-* mkdir is idempotent. Deleting a non-empty directory needs
-  ?recursive=1, else 409 (nothing is deleted; bulk delete is
-  all-or-nothing). A file or empty directory needs no flag.
+* Parent directories: PUT creates missing ones and mkdir is
+  idempotent, but rename does not create them - a missing destination
+  parent is a 404.
+* rename takes to=$newpath, a path relative to the share root: a value
+  with no "/" renames in place, one naming another directory moves the
+  entry there. A directory is never replaced, ?overwrite=1 or not.
+* Bulk delete is all-or-nothing: if one target is refused, nothing is
+  deleted.
 * With no auth configured, anyone who can reach the server can delete.
 * Uploads may return 413 if a per-upload or total-storage limit is set;
   downloads and deletes are unaffected. The HTML pages show storage use.

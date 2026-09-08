@@ -3,7 +3,7 @@
 
     python -m minishare                       # serve ./data on :8000
     python -m minishare -d /srv/share -p 9000
-    python -m minishare -a alice:s3cret -x /files
+    python -m minishare -a alice:'scrypt:...' -x /files
 """
 from __future__ import annotations
 

@@ -2,27 +2,30 @@
 
 A minimal Flask **blueprint** file-sharing server: browse, download,
 upload, rename/move, create and delete (files & directories) — usable
-by **both humans and agents**. The full API lives in one place
-(`_api_doc`), served at `GET /help` and folded into the top of every
-page, so an agent doing `curl /` sees it immediately. Any listing can
-be requested as JSON (`?format=json`); mutating endpoints answer agents
-with JSON and browsers with a redirect. Optional per-upload /
-total-storage caps; every page shows a small `storage:` indicator.
+by **both humans and agents**. Browsers get a quiet HTML UI; agents get
+JSON on any listing (`?format=json`) and a plain-text API reference at
+`GET /help`. Mutating endpoints answer agents with JSON and browsers
+with a redirect. Optional per-upload / total-storage caps; every page
+shows a small `storage:` indicator.
 
 ## Run standalone
 
 ```bash
-pip install -r requirements.txt
-python -m minishare                                  # serve ./data on :8000
-python -m minishare -d /srv/files -p 9000 -t "Acme Files"
-python -m minishare -a alice:s3cret -a bob:hunter2   # HTTP Basic auth
-python -m minishare -x /files --max-mb 50 --max-total-mb 2000
+make run                          # serve ./data on :8000, venv and all
+make run PORT=9000 DIR=/srv/files
 ```
 
-The shared dir is created if missing. Flags: `-d/--dir`, `-H/--host`,
-`-p/--port`, `-x/--prefix`, `-t/--title`, `-a/--auth USER:PASS` (repeat),
-`--max-mb`, `--max-total-mb`, `--auth-rate-limit`, `--debug`. Each has a
-`MINISHARE_*` env equivalent.
+For anything the two `make` variables don't cover, call the CLI (after
+`pip install -e .`):
+
+```bash
+python -m minishare -d /srv/files -p 9000 -t "Acme Files"
+python -m minishare -x /files --max-mb 50 --max-total-mb 2000
+python -m minishare -a alice:'scrypt:...'   # HTTP Basic auth, see below
+```
+
+The shared dir is created if missing. `python -m minishare --help` lists
+every flag; each has a `MINISHARE_*` env equivalent.
 
 ## Use as a git submodule
 
@@ -41,17 +44,16 @@ from minishare import make_blueprint
 app = Flask(__name__)
 app.register_blueprint(
     make_blueprint(name="files", storage_dir="/srv/files",
-                   auth={"alice": "s3cret"}, title="Acme Files",
+                   auth={"alice": "scrypt:..."}, title="Acme Files",
                    max_total_mb=2000),
     url_prefix="/files",
 )
 ```
 
 `make_blueprint` parameters: `storage_dir` (required), `name`, `auth`,
-`title`, `max_mb`, `max_total_mb`, `auth_rate_limit` (per-IP brute-force
-backoff: hard block in seconds after 4 failed logins, default `10`, `0`
-disables). Give each instance a unique `name`; in-page links are
-blueprint-relative, so any name and `url_prefix` just work.
+`title`, `max_mb`, `max_total_mb`, `auth_rate_limit` (see below). Give
+each instance a unique `name`; in-page links are blueprint-relative, so
+any name and `url_prefix` just work.
 
 ## Authentication (optional)
 
@@ -73,11 +75,11 @@ Hashes are verified with `check_password_hash` (the KDF runs per
 request, so a costly hash trades CPU for not storing the password).
 There are no roles — plain all-or-nothing access. The first 4
 wrong-credential attempts from an IP just get `401` (browsers retry on
-a normal login); past that the IP is
-blocked hard for `auth_rate_limit` seconds (default `10`) — further
-credentialed attempts get a `429` advising a ~15 s wait, with no
-password check. A correct login clears the IP; no-credential challenge
-requests are never counted or throttled.
+a normal login); past that the IP is blocked hard for `auth_rate_limit`
+seconds (default `10`) — further credentialed attempts get a `429`
+advising a ~15 s wait, with no password check. A correct login clears
+the IP; no-credential challenge requests are never counted or
+throttled.
 
 Don't pass credentials on the command line (`curl -u USER:PASS` leaks
 them into shell history and `ps`); `GET /help` documents a curl-config
@@ -85,15 +87,16 @@ them into shell history and `ps`); `GET /help` documents a curl-config
 
 ## API
 
-Browsers get a full UI: browse, download, multi-select/drag-drop
-upload, create folder, checkbox delete, and a per-row `⋯` menu to
-rename/move or delete that one entry. It is responsive — on a phone the
-listing reflows to one block per entry (name, then size and date
-underneath) with the checkbox and `⋯` kept to the right. The same
-actions are documented
-endpoints for agents/scripts in **[API.md](minishare/API.md)** — the
-single source, served verbatim (with the live base URL) at `GET /help`
-and folded into the top of every page.
+The browser UI covers browse, download, multi-select/drag-drop upload,
+create folder, checkbox delete, and a per-row `⋯` menu to rename/move
+or delete that one entry. On a phone the listing reflows to one block
+per entry — name, then size and date underneath, checkbox and `⋯` to
+the right.
+
+The same actions are documented endpoints for agents and scripts in
+**[API.md](minishare/API.md)** — the single source, served verbatim
+(with the live base URL) at `GET /help` and folded into the top of
+every page, so an agent doing `curl /` sees it immediately.
 
 ## Security
 
@@ -119,12 +122,9 @@ per-IP backoff is per-process / per-`remote_addr` — behind a proxy apply
 
 ## Tests / layout
 
-```bash
-make test                 # creates .venv from pyproject.toml, runs pytest
-make run                  # dev server (override PORT= and DIR=)
-```
-
-or by hand: `pip install -e ".[dev]" && pytest`.
+`make test` builds `.venv` from `pyproject.toml` and runs the suite;
+`make run` starts a dev server; `make clean` removes the venv and
+caches. See the `Makefile`.
 
 `minishare/__init__.py` (public API), `minishare/share.py`
 (`make_blueprint` + all routes), `minishare/cli.py` (runner),

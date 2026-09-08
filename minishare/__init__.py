@@ -12,7 +12,7 @@ Two ways to use it:
 
       app.register_blueprint(
           make_blueprint(name="files", storage_dir="/srv/a",
-                         auth={"alice": "s3cret"}),
+                         auth={"alice": "scrypt:..."}),
           url_prefix="/files",
       )
       app.register_blueprint(

@@ -7,9 +7,9 @@ changing this repo. Read this before editing; keep it true after editing.
 
 `minishare` — a deliberately small Flask **blueprint** file-sharing
 server: browse / download / upload / mkdir / rename / delete. Two ways
-to run it:
-standalone (`python -m minishare`) or embedded as a git submodule
-(`app.register_blueprint(make_blueprint(...))`). See `README.md`.
+to run it: standalone (`python -m minishare`) or embedded as a git
+submodule (`app.register_blueprint(make_blueprint(...))`). See
+`README.md`.
 
 ## The one rule everything else serves: dual audience
 
@@ -110,7 +110,8 @@ the same time**. Concretely:
   `"share.browse"`) so any name/prefix works; keep it that way.
 - **Submodule-safe / config by parameter.** Nothing is written to
   `app.config`; all settings (`storage_dir`, `name`, `auth`, `title`,
-  `max_mb`, `max_total_mb`) are `make_blueprint()` parameters. Never set
+  `max_mb`, `max_total_mb`, `auth_rate_limit`) are `make_blueprint()`
+  parameters. Never set
   Flask globals (e.g. `MAX_CONTENT_LENGTH`). The `MINISHARE_*` env vars
   and CLI flags are conveniences for `create_app()` / the standalone
   runner only, never required to embed.
@@ -154,24 +155,26 @@ the same time**. Concretely:
   `{"renamed":"<from>","to":"<to>"}` — one field does both rename and
   move, so the browser's text box and the agent's parameter are
   literally the same thing. Agents get JSON, browsers redirect.
-  Destructive intent must be explicit: a non-empty-dir delete needs
-  `?recursive=1`, overwriting an existing file (PUT / upload / rename)
-  needs `?overwrite=1`; otherwise `409` (parsed by `_flag()`, handler
-  registered for `409`). This was a *deliberate* break of the older
-  "delete is always recursive / PUT always overwrites" behaviour — keep
-  it; the safety > the smoothness here. Don't break any of this.
+  The destructive-op flags are part of these contracts too — the rules
+  and the reasoning are under **Security** above. They were a
+  *deliberate* break of the older "delete is always recursive / PUT
+  always overwrites" behaviour; keep it, the safety beats the
+  smoothness. Don't break any of this.
 
 ## Dev criteria (definition of done)
 
 1. **Write/extend tests.** `tests/test_minishare.py` (pytest). Every
    behaviour change or fix gets a test that would fail without it. Run
-   `pytest` — it must be green before you call it done.
+   `make test` — it must be green before you call it done.
 2. **Refactor as you go.** Leave the code cleaner than you found it:
    dedupe, extract helpers (`_respond`, `_resolve`), kill dead code. Do
    a quick self code-review every round.
-3. **Keep docs true.** Update `minishare/API.md` (→ `/help` + in-page)
-   and `README.md` whenever behaviour, routes, flags, or signatures change.
-   Re-audit them when asked.
+3. **Keep docs true.** Update `minishare/API.md` (→ `/help` + in-page),
+   `README.md` and this file whenever behaviour, routes, flags or
+   signatures change — docstrings and examples included. An example that
+   no longer runs is a bug; one class of those is pinned by
+   `test_docs_never_show_a_plaintext_password_as_an_auth_value`.
+   Re-audit when asked.
 4. **Verify for real.** Exercise the change against a live server or the
    test client; don't claim behaviour you didn't observe. Report
    failures honestly.
@@ -182,17 +185,9 @@ the same time**. Concretely:
 
 ## Run / test
 
-```bash
-make test                        # bootstraps .venv, runs the full suite
-make run                         # dev server (override PORT= / DIR=)
-make clean                       # drop .venv and caches
-```
-
-`make test` is the definition of done. The venv is a directory target
-with `pyproject.toml` as its prerequisite, so it rebuilds only when the
-dependency declaration changes. By hand it is still
-`pip install -e ".[dev]"` + `pytest`; `python -m minishare -p 8000`
-still runs the server (no autoreload without `--debug`).
+`make test` (the definition of done), `make run`, `make clean` — read
+the `Makefile`, it is nine lines and it owns the venv. Don't restate its
+commands in the docs; point at it.
 
 ## Gotchas / lessons learned
 
@@ -202,7 +197,11 @@ still runs the server (no autoreload without `--debug`).
   live store; deleting it 404s the running instance (happened twice).
   Tests must use `tmp_path` / temporary dirs, never the real `data/`.
 - `data/` is gitignored and is user content — don't wipe or "tidy" it.
-- The CLI process is matched by `pkill -f 'python -m minishare -p 8000'`
-  for restarts; this is expected to exit non-zero in the harness.
+- **Never `pkill -f` a pattern that occurs in your own command line.**
+  The shell running `pkill -f 'python -m minishare'` has that string in
+  *its* argv, so pkill kills the shell — the harness just reports exit
+  144, which reads like an unrelated crash. Use the bracket trick, which
+  matches the server but not the command that types it:
+  `pgrep -f 'python -m minisha[r]e' | xargs -r kill`.
 - Files dropped for upload land on the file picker; the drag hint must
   sit next to the picker, not the Upload button.

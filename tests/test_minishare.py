@@ -674,6 +674,31 @@ def test_rename_is_documented_for_agents(client):
     assert "?overwrite=1" in helptxt              # the guard, next to it
 
 
+def test_docs_never_show_a_plaintext_password_as_an_auth_value(client):
+    """`auth` takes hashes only, so an example with a plaintext value is
+    an example that raises ValueError. Keep every one of them runnable."""
+    import re
+
+    repo = Path(minishare.__file__).parent.parent
+    pat = re.compile(
+        r"""(?:-a\s+|auth=\{["'])[\w.-]+["']?:\s*["']?([^"'\s,}]+)"""
+    )
+    offenders = []
+    for rel in ("README.md", "AGENTS.md", "minishare/cli.py",
+                "minishare/__init__.py", "minishare/share.py"):
+        for n, line in enumerate(
+            (repo / rel).read_text(encoding="utf-8").splitlines(), 1
+        ):
+            for value in pat.findall(line):
+                if not (value.startswith(("scrypt", "pbkdf2"))
+                        or "HASH" in value.upper()):
+                    offenders.append(f"{rel}:{n}: auth value {value!r}")
+    assert not offenders, (
+        "plaintext auth examples (use a scrypt/pbkdf2 hash or HASH): "
+        + "; ".join(offenders)
+    )
+
+
 def test_help_is_plain_text(client):
     r = client.get("/help")
     assert r.mimetype == "text/plain"
