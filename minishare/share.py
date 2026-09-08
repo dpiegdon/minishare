@@ -336,6 +336,7 @@ def _agent_brief(base: str, auth_on: bool) -> str:
 # --------------------------------------------------------------------------- #
 _PAGE = """<!doctype html>
 <title>{{ title }} · /{{ subpath }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   body{font:14px/1.5 system-ui,sans-serif;margin:2rem auto;max-width:60rem;padding:0 1rem}
   h1{font-size:1.1rem}
@@ -373,6 +374,46 @@ _PAGE = """<!doctype html>
   pre{white-space:pre-wrap;font-size:12px;color:#666;margin:.4rem 0 0}
   .crumb{color:#666}
   .su{color:#888;font-size:12px;margin:-.4rem 0 .8rem}
+
+  /* Phones. The listing stops behaving like a table: one block per
+     entry, filename on its own line and size + date as a small meta
+     line under it, with the checkbox and the "..." menu held at the
+     right. Nothing here is required for the page to work - it only
+     reflows what is already there, so JS-off and no-CSS both survive. */
+  @media (max-width: 40rem) {
+    body{margin:1rem auto;padding:0 .75rem;font-size:15px}
+    h1{font-size:1rem;overflow-wrap:anywhere}
+    table,tbody{display:block}
+    table{margin:.5rem 0}
+    table tr:first-child{display:none}          /* the column headings */
+    tr{display:flex;flex-wrap:wrap;align-items:flex-start;
+       padding:.5rem 0;border-bottom:1px solid #eee}
+    td{display:block;border:0;padding:0}
+    td:empty{display:none}
+    /* line 1 is exactly full, so the meta cells always wrap under it */
+    td.name{flex:0 1 calc(100% - 5.5rem);order:1;line-height:1.6;
+            overflow-wrap:anywhere}
+    td.name a{display:inline-block;padding:.15rem 0}
+    td.sel{flex:0 0 5.5rem;order:2;width:auto;text-align:right}
+    td.r,td.mod{order:3;font-size:12px;color:#666;text-align:left}
+    td.size.empty{display:none}                 /* dirs have no size */
+    td.size:not(.empty)::after{content:" ·";color:#bbb;padding:0 .15rem}
+    /* 16px inputs: anything smaller makes iOS Safari zoom on focus */
+    input[type=text],button{font-size:16px}
+    input[type=checkbox]{width:1.15rem;height:1.15rem;vertical-align:middle}
+    /* ~45px tap targets; #selall repeats to outrank the id rule above */
+    details.menu>summary{font-size:1.35rem;line-height:1.5;padding:.4rem .7rem}
+    #selall{font-size:14px}
+    .menupanel{width:min(16rem,76vw)}
+    .menupanel input[type=text],.menupanel button{min-height:2.75rem}
+    form#delform button{min-height:2.5rem}
+    .ops{display:block}
+    .ops form{margin:0 0 .75rem}
+    .ops input[type=text],.ops input[type=file],.ops button{
+      width:100%;box-sizing:border-box}
+    .ops button{min-height:2.75rem;margin-top:.5rem}
+    .hint{display:block;margin:.5rem 0 0}
+  }
 </style>
 <details>
   <summary>CLI / API usage (for agents &amp; scripts)</summary>

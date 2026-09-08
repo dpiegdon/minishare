@@ -766,6 +766,36 @@ def test_row_delete_confirm_keeps_filenames_out_of_js_source(client, root):
     assert 'data-name="o&#39;brien.txt"' in html
 
 
+def test_page_declares_a_mobile_viewport(client):
+    """Without this a phone renders the page at ~980px and zooms out."""
+    html = client.get("/").get_data(as_text=True)
+    assert ('<meta name="viewport" '
+            'content="width=device-width, initial-scale=1">') in html
+
+
+def test_narrow_screens_get_a_stacked_listing(client, root):
+    (root / "f.txt").write_text("x")
+    html = client.get("/").get_data(as_text=True)
+    css = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    assert "@media (max-width: 40rem)" in css
+    mobile = css.split("@media (max-width: 40rem)", 1)[1]
+    # the table stops behaving like a table: one block per entry
+    assert "display:block" in mobile
+    # 16px text inputs: below that, iOS Safari zooms in on focus and
+    # leaves the page scrolled sideways
+    assert "font-size:16px" in mobile
+
+
+def test_listing_cells_are_addressable_for_the_stacked_layout(client, root):
+    """The stacked layout needs to target size/modified individually."""
+    (root / "f.txt").write_text("x")
+    (root / "d").mkdir()
+    html = client.get("/").get_data(as_text=True)
+    assert '<td class="r size">' in html        # a file's size
+    assert '<td class="r size empty">' in html  # a dir's placeholder dash
+    assert '<td class="mod">' in html
+
+
 def test_content_negotiation_json_variants(client, root):
     (root / "f.txt").write_text("x")
     assert client.get("/browse/?format=json").is_json

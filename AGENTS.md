@@ -135,6 +135,18 @@ the same time**. Concretely:
   of that form, so query the *document*, never `form.querySelectorAll`.
   A filename never goes into JS source — the row-delete confirm reads it
   from `data-name`, so a quote in a name can't break the handler.
+- **Mobile is a first-class view.** The page carries a
+  `width=device-width` viewport meta — without it phones lay out at
+  ~980px and zoom out, which was the single biggest thing wrong with
+  the old page — plus one `@media (max-width: 40rem)` block that
+  reflows the listing into one block per entry. The trick that makes it
+  deterministic: the name cell is `calc(100% - 5.5rem)` and the actions
+  cell `5.5rem`, so line one is exactly full and the size/modified
+  cells *always* wrap underneath; don't drift those two widths apart.
+  Text inputs are 16px there because anything smaller makes iOS Safari
+  zoom the page on focus and leave it scrolled sideways. Tap targets
+  are ~45px. It is pure CSS — no JS, no second template, identical
+  markup at both widths, so there is nothing extra to keep in sync.
 - **Stable contracts (+ destructive-op guard).** `DELETE
   /delete/<path>` → `{"deleted":"<path>"}` (string); bulk `POST /delete`
   with `sel=` → `{"deleted":[...]}` (list); `POST /rename/<path>` with

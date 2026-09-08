@@ -87,7 +87,10 @@ them into shell history and `ps`); `GET /help` documents a curl-config
 
 Browsers get a full UI: browse, download, multi-select/drag-drop
 upload, create folder, checkbox delete, and a per-row `⋯` menu to
-rename/move or delete that one entry. The same actions are documented
+rename/move or delete that one entry. It is responsive — on a phone the
+listing reflows to one block per entry (name, then size and date
+underneath) with the checkbox and `⋯` kept to the right. The same
+actions are documented
 endpoints for agents/scripts in **[API.md](minishare/API.md)** — the
 single source, served verbatim (with the live base URL) at `GET /help`
 and folded into the top of every page.
