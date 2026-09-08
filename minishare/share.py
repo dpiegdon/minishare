@@ -383,13 +383,13 @@ _PAGE = """<!doctype html>
   .hint{color:var(--fg);font-weight:600;margin-left:.4rem}
   td.sel,th.sel{text-align:right;width:5.5rem;white-space:nowrap}
   #selall{font-size:12px}
-  form#delform{display:flex;gap:.5rem;align-items:center;margin:0;padding:0;background:none}
+  form#delform{display:flex;gap:.5rem;align-items:center;justify-content:flex-end;margin:0;padding:0;background:none}
   .bulk{margin:1rem 0 -.6rem}
   details.menu{display:inline-block;position:relative;margin:0}
   details.menu>summary{list-style:none;display:inline-block;color:var(--fg-dim);font-size:1.1rem;line-height:1;padding:.2rem .45rem;border-radius:4px}
   details.menu>summary::-webkit-details-marker{display:none}
   details.menu>summary:hover{background:var(--hover)}
-  .menupanel{position:absolute;right:0;top:100%;z-index:5;width:16rem;padding:.6rem;text-align:left;background:var(--panel);border:1px solid var(--line-strong);border-radius:6px;box-shadow:0 2px 8px var(--shadow)}
+  .menupanel{position:absolute;right:0;top:100%;z-index:5;width:16rem;padding:.6rem;text-align:left;white-space:normal;background:var(--panel);border:1px solid var(--line-strong);border-radius:6px;box-shadow:0 2px 8px var(--shadow)}
   .menupanel form{margin:0;padding:0;background:none}
   .menupanel form+form{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--line)}
   .menupanel label{display:block;font-size:12px;color:var(--muted)}

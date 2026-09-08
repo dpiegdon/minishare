@@ -795,12 +795,33 @@ def test_row_menu_targets_directories_too(client, root):
     assert 'name="to" value="d"' in html
 
 
+def test_menu_panel_resets_the_cells_inherited_text_rules(client):
+    """`td.sel` is `white-space:nowrap` (so the checkbox and the "..."
+    stay on one line) and `text-align:right`. Both are inherited
+    properties, and inheritance follows the DOM, so they reach the panel
+    even though it is positioned out of flow. `nowrap` there forces the
+    label text and the 100%-wide input onto a single line, and the input
+    overflows the panel to the right by the width of the label."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    panel = css_block(css, ".menupanel{")
+    assert "white-space:normal" in panel
+    assert "text-align:left" in panel
+
+
 def test_rename_field_is_prefilled_with_the_full_path(client, root):
     """The human field and the API field are the same field."""
     (root / "docs").mkdir()
     (root / "docs" / "n.txt").write_text("n")
     html = client.get("/browse/docs").get_data(as_text=True)
     assert 'name="to" value="docs/n.txt"' in html
+
+
+def test_bulk_buttons_stay_at_the_right_edge(client):
+    """They used to sit in the right-hand header cell. Moving the form
+    out of the table (row forms cannot nest inside it) must not drag
+    them over to the left, at either width."""
+    css = css_of(client.get("/").get_data(as_text=True))
+    assert "justify-content:flex-end" in css_block(css, "form#delform{")
 
 
 def test_bulk_form_is_standalone_so_row_forms_are_valid_html(client, root):

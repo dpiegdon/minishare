@@ -218,6 +218,9 @@ commands in the docs; point at it.
   *its* argv, so pkill kills the shell — the harness just reports exit
   144, which reads like an unrelated crash. Use the bracket trick, which
   matches the server but not the command that types it:
-  `pgrep -f 'python -m minisha[r]e' | xargs -r kill`.
+  `pgrep -f 'python -m minisha[r]e' | xargs -r kill` — and run it as its
+  *own* command, because the trick fails the moment the same command
+  line also starts the server (that literal `minishare` is then there
+  for the regex to find).
 - Files dropped for upload land on the file picker; the drag hint must
   sit next to the picker, not the Upload button.
